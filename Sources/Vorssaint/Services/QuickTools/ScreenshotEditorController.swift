@@ -780,51 +780,10 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// edge, so their inside stays free for placing a new text, sticker or
     /// counter — the tap that used to create one there must keep doing so.
     func hitTest(_ point: CGPoint, includeShapeInteriors: Bool = true) -> UUID? {
-        let tolerance = 10 * scale
-        for annotation in annotations.reversed() {
-            switch annotation.tool {
-            case .arrow, .line:
-                guard annotation.points.count >= 2 else { continue }
-                if ScreenshotSupport.distance(from: point,
-                                              toSegment: annotation.points[0],
-                                              annotation.points[1])
-                    <= tolerance + annotation.stroke.width * scale / 2 {
-                    return annotation.id
-                }
-            case .freehand:
-                for pathPoint in annotation.points
-                where hypot(point.x - pathPoint.x, point.y - pathPoint.y) <= tolerance {
-                    return annotation.id
-                }
-            case .counter:
-                let radius = ScreenshotSupport.counterDiameter(for: imageSize, scale: 1) / 2
-                if hypot(point.x - annotation.rect.midX, point.y - annotation.rect.midY)
-                    <= radius + 4 * scale {
-                    return annotation.id
-                }
-        case .rect, .ellipse, .highlight, .pixelate, .redact:
-                let outer = annotation.rect.insetBy(dx: -tolerance / 2, dy: -tolerance / 2)
-                guard outer.contains(point) else { continue }
-                if includeShapeInteriors {
-                    return annotation.id
-                }
-                // Edge ring only: a shape too small to have a meaningful
-                // interior stays fully tappable.
-                let inner = annotation.rect.insetBy(dx: tolerance, dy: tolerance)
-                if inner.isEmpty || inner.width <= 0 || inner.height <= 0
-                    || !inner.contains(point) {
-                    return annotation.id
-                }
-            case .text, .sticker:
-                if annotation.rect.insetBy(dx: -tolerance / 2, dy: -tolerance / 2)
-                    .contains(point) {
-                    return annotation.id
-                }
-            case .select, .crop:
-                continue
-            }
-        }
-        return nil
+        annotations.last {
+            AnnotationGeometry.hit($0, at: point, scale: scale, imageSize: imageSize,
+                                   includeShapeInteriors: includeShapeInteriors)
+        }?.id
     }
 
     // MARK: - Edits

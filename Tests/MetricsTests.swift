@@ -41,6 +41,7 @@ struct MetricsTests {
         }
 
         // MARK: Screen annotation rules
+        AnnotationTests.run { expect($0, $1) }
 
         let annotationDisplay = AnnotationDisplayGeometry(
             id: 1, frame: CGRect(x: -1920, y: -1080, width: 1920, height: 1080), scale: 2)

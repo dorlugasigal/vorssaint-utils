@@ -25,8 +25,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - State
 
     @Published private(set) var isDrawingActive = false
-    private(set) var strokes: [AnnotationStroke] = []
-    @Published private(set) var selectedStrokeIndex: Int?
+    private(set) var strokes: [AnnotationElement] = []
+    @Published private(set) var selectedID: UUID?
+    private var draftID: UUID?
+    private var dragStart = CGPoint.zero
     @Published private(set) var shortcutRegistrationFailed = false
 
     // Preferences (kept in sync with UserDefaults)
@@ -67,12 +69,14 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     @objc func clearAll() {
-        strokes = ScreenAnnotationSupport.clear(strokes)
+        strokes.removeAll()
+        selectedID = nil
         drawingView?.needsDisplay = true
     }
 
     @objc func undo() {
-        strokes = ScreenAnnotationSupport.undo(strokes)
+        if !strokes.isEmpty { strokes.removeLast() }
+        selectedID = nil
         drawingView?.needsDisplay = true
     }
 
@@ -95,7 +99,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         toolbarPanel = nil
         drawingView = nil
         strokes.removeAll()
-        selectedStrokeIndex = nil
+        selectedID = nil
+        draftID = nil
         sessionScreen = nil
         sessionGeometry = nil
     }
@@ -295,75 +300,61 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - Stroke entry points (called from AnnotationDrawingView)
 
     fileprivate func beginStroke(at p: NSPoint, bounds: CGRect) {
+        draftID = nil
+        dragStart = p
         if tool == .text {
             drawingView?.beginTextEditor(at: p)
             return
         }
         if tool == .select || tool == .eraser {
-            let index = strokeIndex(at: p, bounds: bounds)
-            selectedStrokeIndex = tool == .select ? index : nil
-            if tool == .eraser, let index { strokes.remove(at: index) }
+            let id = hitTest(p, bounds: bounds)
+            selectedID = tool == .select ? id : nil
+            if tool == .eraser { strokes.removeAll { $0.id == id } }
             drawingView?.needsDisplay = true
             return
         }
-        let n = ScreenAnnotationSupport.normalized(
-            point: AnnotationPoint(x: p.x, y: p.y),
-            in: (Double(bounds.width), Double(bounds.height)))
-        strokes.append(AnnotationStroke(tool: tool, color: color, width: width, points: [n, n]))
+        guard let elementTool = tool.elementTool else { return }
+        selectedID = nil
+        let element = AnnotationElement(tool: elementTool, rect: CGRect(origin: p, size: .zero),
+            points: tool.isRectangular ? [] : [p, p], style: creationStyle)
+        strokes.append(element)
+        draftID = element.id
+    }
+
+    private var creationStyle: AnnotationStyle {
+        AnnotationStyle(color: color, width: width, opacity: tool == .highlighter ? 0.35 : 1,
+                        smooth: false, textSize: max(14, width * 3), mediumTextWeight: true)
     }
 
     fileprivate func commitText(_ value: String, at p: NSPoint, bounds: CGRect) {
         let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        let n = ScreenAnnotationSupport.normalized(
-            point: AnnotationPoint(x: p.x, y: p.y),
-            in: (Double(bounds.width), Double(bounds.height)))
-        strokes.append(AnnotationStroke(tool: .text, color: color, width: width,
-                                        points: [n], text: text))
+        var element = AnnotationElement(tool: .text, rect: CGRect(origin: p, size: .zero),
+                                        text: text, style: creationStyle)
+        element.rect = AnnotationRenderer.textBounds(element, scale: 1)
+        strokes.append(element)
         drawingView?.needsDisplay = true
     }
 
-    private func strokeIndex(at p: NSPoint, bounds: CGRect) -> Int? {
-        let point = CGPoint(x: p.x, y: p.y)
-        for index in strokes.indices.reversed() {
-            let stroke = strokes[index]
-            let points = stroke.points.map {
-                CGPoint(x: $0.x * Double(bounds.width), y: $0.y * Double(bounds.height))
-            }
-            guard let first = points.first else { continue }
-            var hit = CGRect(x: first.x, y: first.y, width: 1, height: 1)
-            for candidate in points.dropFirst() { hit = hit.union(CGRect(x: candidate.x, y: candidate.y, width: 1, height: 1)) }
-            if stroke.tool == .text {
-                hit.size.width = max(40, CGFloat(stroke.text.count) * max(8, stroke.width * 2.2))
-                hit.size.height = max(24, stroke.width * 4)
-            }
-            let tolerance = max(12, stroke.width * 2)
-            if hit.insetBy(dx: -tolerance, dy: -tolerance).contains(point) { return index }
-        }
-        return nil
+    private func hitTest(_ point: CGPoint, bounds: CGRect) -> UUID? {
+        strokes.last { AnnotationGeometry.hit($0, at: point, scale: 1, imageSize: bounds.size) }?.id
     }
 
     fileprivate func continueStroke(at p: NSPoint, bounds: CGRect) {
-        guard let i = strokes.indices.last else { return }
-        let n = ScreenAnnotationSupport.normalized(
-            point: AnnotationPoint(x: p.x, y: p.y),
-            in: (Double(bounds.width), Double(bounds.height)))
-        let s = strokes[i]
-        let nextPoints: [AnnotationPoint]
-        if s.tool.isFreehand {
-            nextPoints = ScreenAnnotationSupport.append(n, to: s.points)
+        guard let draftID, let i = strokes.firstIndex(where: { $0.id == draftID }) else { return }
+        if strokes[i].tool == .freehand {
+            strokes[i].points.append(p)
+        } else if strokes[i].tool.dragsRect {
+            strokes[i].rect = ScreenshotSupport.selectionRect(from: dragStart, to: p)
         } else {
-            nextPoints = [s.points[0], n]
+            strokes[i].points = [dragStart, p]
         }
-        strokes[i] = AnnotationStroke(tool: s.tool, color: s.color, width: s.width,
-                                       points: nextPoints)
     }
 
-    fileprivate func strokeColor(for stroke: AnnotationStroke) -> NSColor {
-        NSColor(calibratedRed: stroke.color.red,
-                green: stroke.color.green,
-                blue: stroke.color.blue,
-                alpha: stroke.tool == .highlighter ? 0.35 : 1)
+    fileprivate func finishStroke(at point: CGPoint, bounds: CGRect) {
+        continueStroke(at: point, bounds: bounds)
+        if tool == .arrow { selectedID = draftID }
+        draftID = nil
     }
 
     // MARK: - Carbon shortcut
@@ -481,68 +472,15 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
         guard let svc = service,
               let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState()
-        for (index, stroke) in svc.strokes.enumerated() where !stroke.points.isEmpty {
-            if stroke.tool == .text {
-                let point = CGPoint(x: stroke.points[0].x * Double(bounds.width),
-                                    y: stroke.points[0].y * Double(bounds.height))
-                let font = NSFont.systemFont(ofSize: max(14, stroke.width * 3), weight: .medium)
-                let textSize = (stroke.text as NSString).size(withAttributes: [.font: font])
-                NSAttributedString(string: stroke.text,
-                                    attributes: [.font: font,
-                                                 .foregroundColor: svc.strokeColor(for: stroke)])
-                    .draw(at: point)
-                if svc.selectedStrokeIndex == index {
-                    ctx.setStrokeColor(NSColor.systemBlue.cgColor)
-                    ctx.setLineWidth(2)
-                    ctx.setLineDash(phase: 0, lengths: [5, 3])
-                    ctx.stroke(CGRect(x: point.x - 4, y: point.y - 4,
-                                      width: textSize.width + 8, height: textSize.height + 8))
-                }
-                continue
-            }
-            guard stroke.points.count > 1 else { continue }
-            let path = CGMutablePath()
-            for (i, pt) in stroke.points.enumerated() {
-                let x = pt.x * Double(bounds.width)
-                let y = pt.y * Double(bounds.height)
-                if i == 0 { path.move(to: .init(x: x, y: y)) }
-                else       { path.addLine(to: .init(x: x, y: y)) }
-            }
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
-            ctx.setLineWidth(stroke.width)
-            ctx.setStrokeColor(svc.strokeColor(for: stroke).cgColor)
-            let start = CGPoint(x: stroke.points[0].x * Double(bounds.width),
-                                y: stroke.points[0].y * Double(bounds.height))
-            let end = CGPoint(x: stroke.points[1].x * Double(bounds.width),
-                              y: stroke.points[1].y * Double(bounds.height))
-            let rect = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
-                              width: abs(end.x - start.x), height: abs(end.y - start.y))
-            switch stroke.tool {
-            case .rectangle:
-                ctx.addRect(rect)
-                ctx.strokePath()
-            case .ellipse:
-                ctx.strokeEllipse(in: rect)
-            case .redact:
-                ctx.setFillColor(svc.strokeColor(for: stroke).cgColor)
-                ctx.fill(rect)
-            case .arrow:
-                ctx.setFillColor(svc.strokeColor(for: stroke).cgColor)
-                ctx.addPath(ScreenshotSupport.arrowSilhouette(from: start, to: end,
-                                                               strokeWidth: stroke.width))
-                ctx.fillPath()
-            case .line, .pen, .highlighter:
-                ctx.addPath(path)
-                ctx.strokePath()
-            case .select, .text, .eraser:
-                break
-            }
-            if svc.selectedStrokeIndex == index {
+        for stroke in svc.strokes {
+            AnnotationRenderer.draw(stroke, in: ctx, scale: 1, shadowsEnabled: false)
+            if svc.selectedID == stroke.id {
+                ctx.saveGState()
                 ctx.setStrokeColor(NSColor.systemBlue.cgColor)
                 ctx.setLineWidth(2)
                 ctx.setLineDash(phase: 0, lengths: [5, 3])
-                ctx.stroke(rect.insetBy(dx: -6, dy: -6))
+                ctx.stroke(AnnotationGeometry.bounds(stroke).insetBy(dx: -6, dy: -6))
+                ctx.restoreGState()
             }
         }
         ctx.restoreGState()
@@ -573,6 +511,9 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if isDragging {
+            service?.finishStroke(at: convert(event.locationInWindow, from: nil), bounds: bounds)
+        }
         isDragging = false
         needsDisplay = true
     }

@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Vorssaint
+
+import AppKit
+
+/// The annotation paint pass, shared by the transparent desktop canvas,
+/// screenshot preview and pixel export. Image effects remain in the host.
+enum AnnotationRenderer {
+    static func color(_ style: AnnotationStyle) -> NSColor {
+        let rgb = style.color.clamped()
+        return NSColor(srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: style.opacity)
+    }
+
+    static func draw(_ annotation: AnnotationElement, in context: CGContext,
+                     scale: CGFloat, shadowsEnabled: Bool) {
+        let style = annotation.resolvedStyle
+        if annotation.tool == .text {
+            drawText(annotation, in: context, scale: scale, shadowsEnabled: shadowsEnabled)
+            return
+        }
+        var scaled = annotation
+        var scaledStyle = style
+        scaledStyle.width *= scale
+        scaled.style = scaledStyle
+        context.saveGState()
+        defer { context.restoreGState() }
+        if shadowsEnabled {
+            context.setShadow(offset: CGSize(width: 0, height: -scale), blur: 3 * scale,
+                              color: CGColor(gray: 0, alpha: 0.38))
+        }
+        context.setStrokeColor(color(style).cgColor)
+        context.setFillColor(color(style).cgColor)
+        context.setLineWidth(scaledStyle.width)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.addPath(AnnotationGeometry.path(scaled))
+        switch annotation.tool {
+        case .arrow, .redact:
+            context.fillPath()
+        case .highlight:
+            context.setBlendMode(.multiply)
+            context.setFillColor(color(style).withAlphaComponent(0.42 * style.opacity).cgColor)
+            context.fillPath()
+        default:
+            context.strokePath()
+        }
+    }
+
+    static func font(_ annotation: AnnotationElement, scale: CGFloat) -> NSFont {
+        let style = annotation.resolvedStyle
+        let size: CGFloat
+        switch annotation.stroke {
+        case .small: size = 13
+        case .medium: size = 19
+        case .large: size = 27
+        }
+        return NSFont.systemFont(ofSize: (style.textSize ?? size) * scale,
+                                 weight: style.mediumTextWeight ? .medium : .semibold)
+    }
+
+    static func textBounds(_ annotation: AnnotationElement, scale: CGFloat) -> CGRect {
+        let text = annotation.text.isEmpty ? " " : annotation.text
+        let measured = text.size(withAttributes: [.font: font(annotation, scale: scale)])
+        return CGRect(origin: annotation.rect.origin,
+                      size: CGSize(width: ceil(measured.width) + 4, height: ceil(measured.height)))
+    }
+
+    private static func drawText(_ annotation: AnnotationElement, in context: CGContext,
+                                 scale: CGFloat, shadowsEnabled: Bool) {
+        guard !annotation.text.isEmpty else { return }
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: font(annotation, scale: scale), .foregroundColor: color(annotation.resolvedStyle)
+        ]
+        if shadowsEnabled {
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
+            shadow.shadowBlurRadius = 2.5 * scale
+            shadow.shadowOffset = NSSize(width: 0, height: -scale)
+            attributes[.shadow] = shadow
+        }
+        context.saveGState()
+        let previous = NSGraphicsContext.current
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        annotation.text.draw(at: CGPoint(x: annotation.rect.minX + 2, y: annotation.rect.minY),
+                             withAttributes: attributes)
+        NSGraphicsContext.current = previous
+        context.restoreGState()
+    }
+}

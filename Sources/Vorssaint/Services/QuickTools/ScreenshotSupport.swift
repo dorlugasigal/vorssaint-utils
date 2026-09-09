@@ -1303,34 +1303,7 @@ enum ScreenshotSupport {
     /// One annotation on the canvas. Geometry lives in image-point
     /// coordinates (top-left origin), so export is resolution-exact and the
     /// view only scales for display.
-    struct Annotation: Identifiable, Equatable {
-        let id: UUID
-        var tool: Tool
-        var rect: CGRect
-        var points: [CGPoint]
-        var text: String
-        var color: ColorID
-        var stroke: StrokeID
-        var number: Int
-
-        init(id: UUID = UUID(),
-             tool: Tool,
-             rect: CGRect = .zero,
-             points: [CGPoint] = [],
-             text: String = "",
-             color: ColorID = .red,
-             stroke: StrokeID = .medium,
-             number: Int = 0) {
-            self.id = id
-            self.tool = tool
-            self.rect = rect
-            self.points = points
-            self.text = text
-            self.color = color
-            self.stroke = stroke
-            self.number = number
-        }
-    }
+    typealias Annotation = AnnotationElement
 
     /// Which way a selected annotation moves through the drawing order.
     enum LayerMove {

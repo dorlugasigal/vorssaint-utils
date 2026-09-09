@@ -259,6 +259,8 @@ if (( TEST )); then
         Sources/Vorssaint/Core/Defaults.swift \
         Sources/Vorssaint/Core/FeatureCatalog.swift \
         Sources/Vorssaint/Services/ScreenAnnotation/ScreenAnnotationSupport.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationElement.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationRenderer.swift \
         Sources/Vorssaint/Core/FeaturePresets.swift \
         Sources/Vorssaint/Core/FeatureHubStrings.swift \
         Sources/Vorssaint/Core/ShortcutSettingsStrings.swift \
@@ -427,6 +429,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Uninstall/UninstallerSupport.swift \
         Sources/Vorssaint/Services/ManagedDownloads/WhatsAppDownloadSupport.swift \
         Tests/MetricsTests.swift \
+        Tests/AnnotationTests.swift \
         Tests/RecentCaptureStoreTests.swift \
         Tests/RecorderPresetImageStoreTests.swift \
         Tests/SpeedTestTests.swift \

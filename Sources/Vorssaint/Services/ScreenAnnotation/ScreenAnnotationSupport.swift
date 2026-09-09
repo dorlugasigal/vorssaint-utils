@@ -52,6 +52,19 @@ enum AnnotationTool: String, Codable, CaseIterable {
     }
 
     var isFreehand: Bool { self == .pen || self == .highlighter }
+
+    var elementTool: ScreenshotSupport.Tool? {
+        switch self {
+        case .select, .eraser: return nil
+        case .pen, .highlighter: return .freehand
+        case .arrow: return .arrow
+        case .line: return .line
+        case .rectangle: return .rect
+        case .ellipse: return .ellipse
+        case .text: return .text
+        case .redact: return .redact
+        }
+    }
 }
 
 struct AnnotationColor: Codable, Equatable {

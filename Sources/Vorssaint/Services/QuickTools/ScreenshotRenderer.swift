@@ -59,38 +59,11 @@ enum ScreenshotRenderer {
             switch annotation.tool {
             case .pixelate:
                 drawPixelate(annotation, in: context, pixelated: pixelated, imageSize: imageSize)
-            case .redact:
-                context.setFillColor(color(annotation.color))
-                context.fill(annotation.rect)
-            case .highlight:
-                context.saveGState()
-                context.setBlendMode(.multiply)
-                context.setFillColor(color(annotation.color, alpha: 0.42))
-                context.fill(annotation.rect)
-                context.restoreGState()
-            case .rect:
-                strokeShape(in: context, annotation: annotation, scale: scale,
-                            shadowsEnabled: annotationShadowsEnabled) {
-                    context.stroke(annotation.rect)
-                }
-            case .ellipse:
-                strokeShape(in: context, annotation: annotation, scale: scale,
-                            shadowsEnabled: annotationShadowsEnabled) {
-                    context.strokeEllipse(in: annotation.rect)
-                }
-            case .line:
-                drawLine(annotation, in: context, scale: scale, arrow: false,
-                         shadowsEnabled: annotationShadowsEnabled)
-            case .arrow:
-                drawLine(annotation, in: context, scale: scale, arrow: true,
-                         shadowsEnabled: annotationShadowsEnabled)
-            case .freehand:
-                drawFreehand(annotation, in: context, scale: scale,
-                             shadowsEnabled: annotationShadowsEnabled)
-            case .text:
-                if annotation.id != editingID {
-                    drawText(annotation, in: context, scale: scale,
-                             shadowsEnabled: annotationShadowsEnabled)
+            case .redact, .highlight, .rect, .ellipse, .line, .arrow, .freehand, .text:
+                if annotation.tool != .text || annotation.id != editingID {
+                    AnnotationRenderer.draw(annotation, in: context, scale: scale,
+                        shadowsEnabled: annotationShadowsEnabled
+                            && annotation.tool != .redact && annotation.tool != .highlight)
                 }
             case .sticker:
                 drawSticker(annotation, in: context, scale: scale,
@@ -102,109 +75,6 @@ enum ScreenshotRenderer {
                 break
             }
         }
-    }
-
-    private static func strokeShape(in context: CGContext,
-                                    annotation: ScreenshotSupport.Annotation,
-                                    scale: CGFloat,
-                                    shadowsEnabled: Bool,
-                                    stroke: () -> Void) {
-        context.saveGState()
-        applyShadow(context, scale: scale, enabled: shadowsEnabled)
-        context.setStrokeColor(color(annotation.color))
-        context.setLineWidth(annotation.stroke.width * scale)
-        context.setLineJoin(.round)
-        context.setLineCap(.round)
-        stroke()
-        context.restoreGState()
-    }
-
-    private static func drawLine(_ annotation: ScreenshotSupport.Annotation,
-                                 in context: CGContext,
-                                 scale: CGFloat,
-                                 arrow: Bool,
-                                 shadowsEnabled: Bool) {
-        guard annotation.points.count >= 2 else { return }
-        let start = annotation.points[0]
-        let end = annotation.points[1]
-        let width = annotation.stroke.width * scale
-        context.saveGState()
-        applyShadow(context, scale: scale, enabled: shadowsEnabled)
-
-        guard arrow else {
-            context.setStrokeColor(color(annotation.color))
-            context.setLineWidth(width)
-            context.setLineCap(.round)
-            context.beginPath()
-            context.move(to: start)
-            context.addLine(to: end)
-            context.strokePath()
-            context.restoreGState()
-            return
-        }
-
-        context.setFillColor(color(annotation.color))
-        context.addPath(ScreenshotSupport.arrowSilhouette(from: start,
-                                                          to: end,
-                                                          strokeWidth: width))
-        context.fillPath()
-        context.restoreGState()
-    }
-
-    private static func drawFreehand(_ annotation: ScreenshotSupport.Annotation,
-                                     in context: CGContext,
-                                     scale: CGFloat,
-                                     shadowsEnabled: Bool) {
-        guard annotation.points.count > 1 else { return }
-        context.saveGState()
-        applyShadow(context, scale: scale, enabled: shadowsEnabled)
-        context.setStrokeColor(color(annotation.color))
-        context.setLineWidth(annotation.stroke.width * scale)
-        context.setLineJoin(.round)
-        context.setLineCap(.round)
-        context.beginPath()
-        context.move(to: annotation.points[0])
-        // Quadratic curves through midpoints smooth hand jitter without
-        // drifting from the stroke.
-        for index in 1..<annotation.points.count {
-            let current = annotation.points[index]
-            let previous = annotation.points[index - 1]
-            let mid = CGPoint(x: (current.x + previous.x) / 2, y: (current.y + previous.y) / 2)
-            context.addQuadCurve(to: mid, control: previous)
-        }
-        if let last = annotation.points.last {
-            context.addLine(to: last)
-        }
-        context.strokePath()
-        context.restoreGState()
-    }
-
-    private static func drawText(_ annotation: ScreenshotSupport.Annotation,
-                                 in context: CGContext,
-                                 scale: CGFloat,
-                                 shadowsEnabled: Bool) {
-        guard !annotation.text.isEmpty else { return }
-        let font = NSFont.systemFont(ofSize: fontSize(for: annotation.stroke, scale: scale),
-                                     weight: .semibold)
-        var attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: nsColor(annotation.color),
-        ]
-        if shadowsEnabled {
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
-            shadow.shadowBlurRadius = 2.5 * scale
-            shadow.shadowOffset = NSSize(width: 0, height: -1 * scale)
-            attributes[.shadow] = shadow
-        }
-        context.saveGState()
-        // NSAttributedString draws in an unflipped space; flip locally.
-        let previous = NSGraphicsContext.current
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
-        annotation.text.draw(at: CGPoint(x: annotation.rect.minX + 2, y: annotation.rect.minY),
-                             withAttributes: attributes)
-        NSGraphicsContext.current = previous
-        context.restoreGState()
     }
 
     private static func drawCounter(_ annotation: ScreenshotSupport.Annotation,
