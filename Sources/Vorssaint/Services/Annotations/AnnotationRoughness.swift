@@ -7,6 +7,7 @@
 import CoreGraphics
 
 enum AnnotationRoughness {
+    static let shapeRoughness: CGFloat = 6
     private struct SketchGenerator {
         var state: UInt32
         mutating func unit() -> CGFloat {
@@ -27,9 +28,12 @@ enum AnnotationRoughness {
     }
 
     static func path(_ canonical: CGPath, character: AnnotationStyle.Character,
-                     seed: UInt64, width: CGFloat, scale: CGFloat = 1, closedShape: Bool = false) -> CGPath {
+                     seed: UInt64, width: CGFloat, scale: CGFloat = 1, closedShape: Bool = false,
+                     roughness: CGFloat = shapeRoughness) -> CGPath {
         guard character != .architect else { return canonical }
-        if closedShape && character == .cartoonist { return sketchOutline(canonical, seed: seed, scale: scale) }
+        if closedShape && character == .cartoonist {
+            return sketchOutline(canonical, seed: seed, scale: scale, roughness: roughness)
+        }
         let widthScale = 1 + min(0.35, max(0, (sqrt(max(1, width / scale)) - 1) * 0.18))
         let amplitude: CGFloat = (character == .artist ? 3 : 6) * widthScale * scale
         let minimum: CGFloat = character == .artist ? 0.35 : 0.65
@@ -82,10 +86,12 @@ enum AnnotationRoughness {
         return result
     }
 
-    static func ellipse(in rect: CGRect, seed: UInt64, scale: CGFloat) -> CGPath {
+    static func ellipse(in rect: CGRect, seed: UInt64, scale: CGFloat,
+                        roughness: CGFloat = shapeRoughness) -> CGPath {
         var random = SketchGenerator(state: UInt32(truncatingIfNeeded: seed) & 0x7fff_ffff)
         if random.state == 0 { random.state = 1 }
-        func offset(_ amount: CGFloat) -> CGFloat { 2 * ((random.unit() * 2 * amount) - amount) }
+        let strength = min(roughness, max(1, min(rect.width, rect.height) / (12 * scale)))
+        func offset(_ amount: CGFloat) -> CGFloat { strength * ((random.unit() * 2 * amount) - amount) }
         let rx = rect.width / 2, ry = rect.height / 2
         let estimate = sqrt(CGFloat.pi * 2 * sqrt((pow(rx / scale, 2) + pow(ry / scale, 2)) / 2))
         let count = ceil(max(9, 9 / sqrt(200) * estimate))
@@ -98,8 +104,9 @@ enum AnnotationRoughness {
             let amount: CGFloat = pass == 0 ? scale : 1.5 * scale
             let overlap: CGFloat
             if pass == 0 {
-                let upper = 2 * (random.unit() * 0.6 + 0.4)
-                overlap = increment * 2 * (random.unit() * (upper - 0.1) + 0.1)
+                let overlapStrength = min(2, strength)
+                let upper = overlapStrength * (random.unit() * 0.6 + 0.4)
+                overlap = increment * overlapStrength * (random.unit() * (upper - 0.1) + 0.1)
             } else { overlap = 0 }
             let phase = offset(0.5) - CGFloat.pi / 2
             func point(_ angle: CGFloat, factor: CGFloat = 1) -> CGPoint {
@@ -129,7 +136,7 @@ enum AnnotationRoughness {
     }
 
     /// Each edge has its own two strokes. Fill/selection use the separate canonical boundary.
-    private static func sketchOutline(_ canonical: CGPath, seed: UInt64, scale: CGFloat) -> CGPath {
+    private static func sketchOutline(_ canonical: CGPath, seed: UInt64, scale: CGFloat, roughness: CGFloat) -> CGPath {
         let result = CGMutablePath()
         var random = SketchGenerator(state: UInt32(truncatingIfNeeded: seed) & 0x7fff_ffff)
         if random.state == 0 { random.state = 1 }
@@ -139,8 +146,10 @@ enum AnnotationRoughness {
                 preserveVertices = true
             }
         }
+        let bounds = canonical.boundingBoxOfPath
+        let strength = min(roughness, max(1, min(bounds.width, bounds.height) / (12 * scale)))
         func offset(_ amount: CGFloat, gain: CGFloat = 1) -> CGFloat {
-            2 * gain * ((random.unit() * (2 * amount)) - amount)
+            strength * gain * ((random.unit() * (2 * amount)) - amount)
         }
         func line(from a: CGPoint, to b: CGPoint) {
             let dx = b.x - a.x, dy = b.y - a.y

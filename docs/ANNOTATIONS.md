@@ -81,7 +81,10 @@ boundary. Open connectors keep their endpoints pinned.
 The shape renderer uses the Rough.js seeded random sequence, quadratic rounded
 corners, and sampled ellipse curves; fixed-seed reference coordinates cover
 sharp and rounded rectangles and ellipses. Different shape seeds produce
-different natural stroke overlaps.
+different natural stroke overlaps. The rough shape preset deliberately uses
+strength 6 (three times Excalidraw's Cartoonist strength), with reduced distortion
+on tiny shapes. It remains seeded: redrawing, exporting or reopening a picker
+does not randomly change an existing outline.
 The retired middle Artist preset remains decodable for existing styles;
 saved creation defaults migrate to Architect. Redact is available in the
 live toolbar's custom-shape menu and remains a separate screenshot tool.

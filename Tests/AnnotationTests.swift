@@ -1244,7 +1244,7 @@ enum AnnotationTests {
                 default: break
                 }
             }
-            expect(largestBend <= 14, "per-edge sketch controls stay close to their own segment")
+            expect(largestBend <= 42, "expressive per-edge sketch controls remain bounded")
         }
         var filled = sketch
         filled.rect = CGRect(x: 20, y: 20, width: 160, height: 160)
@@ -1291,6 +1291,13 @@ enum AnnotationTests {
         let previous = AnnotationGeometry.path(line)
         line.roughSeed &+= 1
         expect(AnnotationGeometry.path(line) != previous, "rough seed invalidates cached geometry")
+        for side: CGFloat in [1, 5, 12, 24] {
+            let small = AnnotationElement(tool: .rect, rect: CGRect(x: 20, y: 20, width: side, height: side),
+                                          style: AnnotationStyle(color: .red, width: 2, character: .cartoonist))
+            let outline = AnnotationGeometry.path(small)
+            expect(!outline.isEmpty && small.rect.insetBy(dx: -8, dy: -8).contains(outline.boundingBoxOfPath),
+                   "small rough shapes do not inherit full-size distortion")
+        }
         var doubled = line
         doubled.points = line.points.map { CGPoint(x: $0.x * 2, y: $0.y * 2) }
         var scale = CGAffineTransform(scaleX: 2, y: 2)
@@ -1322,7 +1329,12 @@ enum AnnotationTests {
                 style: AnnotationStyle(color: .red, width: 3, roundness: roundness, character: .cartoonist))
             shape.roughSeed = 42
             var actual: [CGFloat] = []
-            AnnotationGeometry.path(shape).applyWithBlock { pointer in
+            let reference = tool == .ellipse
+                ? AnnotationRoughness.ellipse(in: shape.rect, seed: 42, scale: 1, roughness: 2)
+                : AnnotationRoughness.path(AnnotationGeometry.shapeBoundary(shape), character: .cartoonist,
+                                          seed: 42, width: 3, closedShape: true, roughness: 2)
+            expect(AnnotationGeometry.path(shape) != reference, "user-requested rough preset is stronger than Excalidraw roughness 2")
+            reference.applyWithBlock { pointer in
                 let element = pointer.pointee
                 let count = element.type == .moveToPoint || element.type == .addLineToPoint ? 1
                     : element.type == .addCurveToPoint ? 3 : element.type == .addQuadCurveToPoint ? 2 : 0
