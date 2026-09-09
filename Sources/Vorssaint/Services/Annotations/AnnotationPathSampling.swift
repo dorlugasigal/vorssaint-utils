@@ -48,8 +48,11 @@ enum AnnotationPathSampling {
 
     static func sweptHit(_ element: AnnotationElement, from start: CGPoint, to end: CGPoint,
                          tolerance: CGFloat) -> Bool {
-        let path = element.tool == .text
-            ? CGPath(rect: element.rect, transform: nil) : AnnotationGeometry.path(element)
+        let path: CGPath
+        if element.tool == .text {
+            var transform = AnnotationGeometry.transform(element)
+            path = CGPath(rect: element.rect, transform: &transform)
+        } else { path = AnnotationGeometry.path(element) }
         var paths = [path]
         if element.tool == .arrow || element.tool == .line {
             paths.append(contentsOf: AnnotationLinear.heads(element, scale: 1).map(\.0))

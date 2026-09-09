@@ -10,6 +10,7 @@ enum SelfTest {
     static func runAndExit() -> Never {
         var failures: [String] = []
         var warnings: [String] = []
+        failures.append(contentsOf: AnnotationHostSelfTest.run())
 
         var assertionID = IOPMAssertionID(0)
         let result = IOPMAssertionCreateWithName("PreventUserIdleSystemSleep" as CFString,

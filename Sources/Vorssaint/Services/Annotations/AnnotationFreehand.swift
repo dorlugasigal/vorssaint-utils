@@ -16,7 +16,8 @@ struct AnnotationInputSampler {
     static let maximumSamplesPerEvent = 16
 
     mutating func sample(_ point: CGPoint, timestamp: TimeInterval, hardwarePressure: CGFloat?,
-                         mode: AnnotationStyle.Pressure, final: Bool = false) -> [AnnotationInputSample] {
+                         mode: AnnotationStyle.Pressure, final: Bool = false,
+                         coordinateScale: CGFloat = 1) -> [AnnotationInputSample] {
         guard point.x.isFinite && point.y.isFinite else { return [] }
         guard let last else {
             self.last = point
@@ -26,7 +27,9 @@ struct AnnotationInputSampler {
             return [AnnotationInputSample(point: point, pressure: pressure)]
         }
         let distance = hypot(point.x - last.x, point.y - last.y)
-        guard distance > 0 && (distance >= 0.5 || final) else { return [] }
+        let scale = coordinateScale.isFinite && coordinateScale > 0 ? coordinateScale : 1
+        let screenDistance = distance / scale
+        guard distance > 0 && (screenDistance >= 0.5 || final) else { return [] }
         let elapsed = timestamp - (self.timestamp ?? timestamp)
         let dt = elapsed.isFinite && elapsed > 0 ? min(max(elapsed, 1 / 240), 0.12) : 1 / 120
         let next: CGFloat
@@ -36,11 +39,11 @@ struct AnnotationInputSampler {
             let raw = hardwarePressure ?? 1
             next = raw.isFinite ? min(max(raw, 0.1), 1) : 1
         case .simulated:
-            let target = min(max(1 - distance / dt / 1600, 0.25), 1)
+            let target = min(max(1 - screenDistance / dt / 1600, 0.25), 1)
             next = pressure + (target - pressure) * min(1, dt * 18)
         }
         let count = mode == .constant ? 1
-            : min(Self.maximumSamplesPerEvent, max(1, Int(min(distance / 2.5, 16).rounded(.up))))
+            : min(Self.maximumSamplesPerEvent, max(1, Int(min(screenDistance / 2.5, 16).rounded(.up))))
         let samples = (1...count).map { index -> AnnotationInputSample in
             let fraction = CGFloat(index) / CGFloat(count)
             return AnnotationInputSample(
@@ -95,6 +98,11 @@ enum AnnotationFreehand {
 /// a copy of a long stroke on each event.
 final class AnnotationPathCache {
     static let shared = AnnotationPathCache()
+    enum Component: Hashable { case body, hatch }
+    private struct Key: Hashable {
+        let id: UUID
+        let component: Component
+    }
     private struct Entry {
         let revision: UUID
         let appendBase: UUID
@@ -104,20 +112,30 @@ final class AnnotationPathCache {
         let core: CGMutablePath?
         let path: CGPath
     }
-    private var entries: [UUID: Entry] = [:]
-    private var order: [UUID] = []
+    private var entries: [Key: Entry] = [:]
+    private var order: [Key] = []
     private let lock = NSLock()
+    private var fullBuilds = 0
+    private var appendUpdates = 0
 
-    func path(_ element: AnnotationElement, scale: CGFloat, build: () -> CGPath) -> CGPath {
+    var statistics: (entries: Int, fullBuilds: Int, appendUpdates: Int) {
         lock.lock()
         defer { lock.unlock() }
-        let existing = entries[element.id]
+        return (entries.count, fullBuilds, appendUpdates)
+    }
+
+    func path(_ element: AnnotationElement, scale: CGFloat, component: Component = .body,
+              build: () -> CGPath) -> CGPath {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = Key(id: element.id, component: component)
+        let existing = entries[key]
         if let existing, existing.revision == element.geometryRevision, existing.scale == scale {
             return existing.path
         }
         let style = element.resolvedStyle
         let incremental = element.tool == .freehand && style.pressure == .constant
-            && style.character == .architect && element.rotation == 0
+            && style.character == .architect && element.rotation == 0 && component == .body
         var core: CGMutablePath?
         let path: CGPath
         if incremental && !element.points.isEmpty {
@@ -126,6 +144,7 @@ final class AnnotationPathCache {
                 && existing?.style == style && existing?.scale == scale
                 && (existing?.count ?? 0) <= element.points.count
             let mutable = reusable ? existing?.core ?? CGMutablePath() : CGMutablePath()
+            if reusable { appendUpdates += 1 } else { fullBuilds += 1 }
             let start = reusable ? existing?.count ?? 0 : 0
             if start == 0 { mutable.move(to: element.points[0]) }
             for index in max(1, start)..<element.points.count {
@@ -140,12 +159,15 @@ final class AnnotationPathCache {
             full.addLine(to: element.points[element.points.count - 1])
             core = mutable
             path = full
-        } else { path = build() }
+        } else {
+            fullBuilds += 1
+            path = build()
+        }
         if existing == nil {
             if order.count >= 256 { entries.removeValue(forKey: order.removeFirst()) }
-            order.append(element.id)
+            order.append(key)
         }
-        entries[element.id] = Entry(revision: element.geometryRevision, appendBase: element.appendBaseRevision,
+        entries[key] = Entry(revision: element.geometryRevision, appendBase: element.appendBaseRevision,
                                     style: style, scale: scale, count: element.points.count, core: core, path: path)
         return path
     }
@@ -155,5 +177,8 @@ final class AnnotationPathCache {
         defer { lock.unlock() }
         entries.removeAll()
         order.removeAll()
+        fullBuilds = 0
+        appendUpdates = 0
+        AnnotationLinear.clearHeadCache()
     }
 }

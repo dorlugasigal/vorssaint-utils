@@ -18502,10 +18502,10 @@ struct MetricsTests {
         try? FileManager.default.removeItem(at: copyRoot)
 
         var counterList = [
-            ScreenshotSupport.Annotation(tool: .counter, number: 1),
-            ScreenshotSupport.Annotation(tool: .arrow),
-            ScreenshotSupport.Annotation(tool: .counter, number: 2),
-            ScreenshotSupport.Annotation(tool: .counter, number: 3),
+            AnnotationElement(tool: .counter, number: 1),
+            AnnotationElement(tool: .arrow),
+            AnnotationElement(tool: .counter, number: 2),
+            AnnotationElement(tool: .counter, number: 3),
         ]
         counterList.remove(at: 0)
         let renumbered = ScreenshotSupport.renumberingCounters(counterList)
@@ -18515,9 +18515,9 @@ struct MetricsTests {
                "renumbering never drops annotations")
 
         let layered = [
-            ScreenshotSupport.Annotation(tool: .text),
-            ScreenshotSupport.Annotation(tool: .rect),
-            ScreenshotSupport.Annotation(tool: .arrow),
+            AnnotationElement(tool: .text),
+            AnnotationElement(tool: .rect),
+            AnnotationElement(tool: .arrow),
         ]
         let sentBack = ScreenshotSupport.reordering(layered, moving: layered[1].id, .backward)
         expect(sentBack.map(\.id) == [layered[1].id, layered[0].id, layered[2].id],

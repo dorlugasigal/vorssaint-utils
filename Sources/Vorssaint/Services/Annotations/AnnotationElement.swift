@@ -65,26 +65,18 @@ struct AnnotationElement: Identifiable, Equatable {
         if let style { return style }
         let rgb = color.components
         return AnnotationStyle(color: AnnotationColor(red: rgb.red, green: rgb.green, blue: rgb.blue),
-                               width: stroke.width, textSize: tool == .text ? legacyTextSize : nil)
-    }
-
-    private var legacyTextSize: CGFloat {
-        switch stroke {
-        case .small: return 13
-        case .medium: return 19
-        case .large: return 27
-        }
+                               width: stroke.width, textSize: tool == .text ? stroke.fontSize : nil)
     }
 }
 
-struct AnnotationStyle: Equatable {
-    enum Fill: Int, CaseIterable { case none, solid, hatch, crossHatch }
-    enum Pattern: Int, CaseIterable { case solid, dashed, dotted }
-    enum Shape: Int, CaseIterable { case standard, diamond }
-    enum FontFamily: Int, CaseIterable { case system, serif, monospace, handwriting }
-    enum Alignment: Int, CaseIterable { case left, center, right }
-    enum Pressure: Int, CaseIterable { case constant, hardware, simulated }
-    enum Character: Int, CaseIterable { case architect, artist, cartoonist }
+struct AnnotationStyle: Codable, Equatable {
+    enum Fill: Int, Codable, CaseIterable { case none, solid, hatch, crossHatch }
+    enum Pattern: Int, Codable, CaseIterable { case solid, dashed, dotted }
+    enum Shape: Int, Codable, CaseIterable { case standard, diamond }
+    enum FontFamily: Int, Codable, CaseIterable { case system, serif, monospace, handwriting }
+    enum Alignment: Int, Codable, CaseIterable { case left, center, right }
+    enum Pressure: Int, Codable, CaseIterable { case constant, hardware, simulated }
+    enum Character: Int, Codable, CaseIterable { case architect, artist, cartoonist }
     var color: AnnotationColor
     var width: CGFloat
     var opacity: CGFloat = 1
@@ -107,6 +99,38 @@ struct AnnotationStyle: Equatable {
     var boldText = false
     var pressure: Pressure = .constant
     var character: Character = .architect
+    var isHighlighter = false
+
+    func applyingChanges(from previous: AnnotationStyle, to updated: AnnotationStyle) -> AnnotationStyle {
+        var result = self
+        func copy<Value: Equatable>(_ key: WritableKeyPath<AnnotationStyle, Value>) {
+            if previous[keyPath: key] != updated[keyPath: key] { result[keyPath: key] = updated[keyPath: key] }
+        }
+        copy(\.color)
+        copy(\.width)
+        copy(\.opacity)
+        copy(\.smooth)
+        copy(\.textSize)
+        copy(\.mediumTextWeight)
+        copy(\.fill)
+        copy(\.fillColor)
+        copy(\.pattern)
+        copy(\.shape)
+        copy(\.roundness)
+        copy(\.curved)
+        copy(\.multiClick)
+        copy(\.startHead)
+        copy(\.endHead)
+        copy(\.headSize)
+        copy(\.bindEndpoints)
+        copy(\.fontFamily)
+        copy(\.textAlignment)
+        copy(\.boldText)
+        copy(\.pressure)
+        copy(\.character)
+        copy(\.isHighlighter)
+        return result.sanitized()
+    }
 
     func sanitized() -> AnnotationStyle {
         var result = self
@@ -119,6 +143,14 @@ struct AnnotationStyle: Equatable {
         if let textSize { result.textSize = textSize.isFinite ? min(max(textSize, 6), 240) : 19 }
         return result
     }
+
+}
+
+extension AnnotationColor {
+    init(preset: ScreenshotSupport.ColorID) {
+        let rgb = preset.components
+        self.init(red: rgb.red, green: rgb.green, blue: rgb.blue)
+    }
 }
 
 enum AnnotationGeometry {
@@ -130,7 +162,18 @@ enum AnnotationGeometry {
     }
 
     static func visualBounds(_ element: AnnotationElement) -> CGRect {
-        bounds(element).applying(transform(element))
+        if element.tool == .text || element.tool == .sticker || element.tool == .counter {
+            return bounds(element).applying(transform(element))
+        }
+        let body = path(element)
+        var bounds = body.boundingBoxOfPath.insetBy(dx: -element.resolvedStyle.width / 2,
+                                                   dy: -element.resolvedStyle.width / 2)
+        if element.tool == .arrow || element.tool == .line {
+            for (head, _) in AnnotationLinear.heads(element, scale: 1) {
+                bounds = bounds.union(head.boundingBoxOfPath)
+            }
+        }
+        return bounds
     }
 
     static func bounds(_ element: AnnotationElement) -> CGRect {
@@ -174,7 +217,7 @@ enum AnnotationGeometry {
                 path.addPath(ScreenshotSupport.arrowSilhouette(
                     from: element.points[0], to: element.points[1],
                     strokeWidth: element.resolvedStyle.width))
-            } else { path.addPath(AnnotationLinear.path(element)) }
+            } else { path.addPath(AnnotationLinear.path(element, renderScale: renderScale)) }
         case .freehand:
             if element.resolvedStyle.pressure != .constant {
                 path.addPath(AnnotationFreehand.outline(element))

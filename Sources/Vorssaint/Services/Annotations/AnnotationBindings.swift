@@ -42,8 +42,12 @@ enum AnnotationBindings {
     static func attach(_ element: inout AnnotationElement, in elements: [AnnotationElement], tolerance: CGFloat) {
         guard !element.isLocked, element.resolvedStyle.bindEndpoints,
               (element.tool == .arrow || element.tool == .line), element.points.count >= 2 else { return }
-        element.startBinding = nearest(to: element.points[0], in: elements, tolerance: tolerance)
-        element.endBinding = nearest(to: element.points[element.points.count - 1], in: elements, tolerance: tolerance)
+        if element.startBinding == nil {
+            element.startBinding = nearest(to: element.points[0], in: elements, tolerance: tolerance)
+        }
+        if element.endBinding == nil {
+            element.endBinding = nearest(to: element.points[element.points.count - 1], in: elements, tolerance: tolerance)
+        }
     }
 
     /// Only shapes are targets, so a single pass resolves every dependency.

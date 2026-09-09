@@ -123,6 +123,7 @@ final class ScreenCaptureService: ObservableObject {
         guard !tools.isEmpty else { return }
         let selected = preferred.flatMap { tools.contains($0) ? $0 : nil }
             ?? (tools.contains(.screenshot) ? .screenshot : tools[0])
+        ScreenAnnotationService.shared.yieldDrawingInput()
 
         guard Permissions.shared.screenRecording else {
             // Color sampling itself needs no capture permission, so its

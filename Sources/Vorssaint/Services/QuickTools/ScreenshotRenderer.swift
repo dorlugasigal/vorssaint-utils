@@ -24,31 +24,12 @@ enum ScreenshotRenderer {
         return NSColor(srgbRed: c.red, green: c.green, blue: c.blue, alpha: 1)
     }
 
-    static func fontSize(for stroke: ScreenshotSupport.StrokeID, scale: CGFloat) -> CGFloat {
-        switch stroke {
-        case .small: return 13 * scale
-        case .medium: return 19 * scale
-        case .large: return 27 * scale
-        }
-    }
-
-    /// Measures a text annotation's box for hit-testing and the inline editor.
-    static func textBounds(_ text: String,
-                           at origin: CGPoint,
-                           stroke: ScreenshotSupport.StrokeID,
-                           scale: CGFloat) -> CGRect {
-        let font = NSFont.systemFont(ofSize: fontSize(for: stroke, scale: scale), weight: .semibold)
-        let measured = (text.isEmpty ? " " : text).size(withAttributes: [.font: font])
-        return CGRect(origin: origin,
-                      size: CGSize(width: ceil(measured.width) + 4, height: ceil(measured.height)))
-    }
-
     // MARK: - Annotation pass
 
     /// Draws every annotation over the base content. `pixelated` is the
     /// redaction source for pixelate rectangles; text being edited inline is
     /// skipped so the live field is the only visible copy.
-    static func drawAnnotations(_ annotations: [ScreenshotSupport.Annotation],
+    static func drawAnnotations(_ annotations: [AnnotationElement],
                                 in context: CGContext,
                                 pixelated: CGImage?,
                                 imageSize: CGSize,
@@ -83,7 +64,7 @@ enum ScreenshotRenderer {
         }
     }
 
-    private static func drawCounter(_ annotation: ScreenshotSupport.Annotation,
+    private static func drawCounter(_ annotation: AnnotationElement,
                                     in context: CGContext,
                                     imageSize: CGSize,
                                     scale: CGFloat,
@@ -115,7 +96,7 @@ enum ScreenshotRenderer {
         NSGraphicsContext.current = previous
     }
 
-    private static func drawSticker(_ annotation: ScreenshotSupport.Annotation,
+    private static func drawSticker(_ annotation: AnnotationElement,
                                     in context: CGContext,
                                     scale: CGFloat,
                                     shadowsEnabled: Bool) {
@@ -141,7 +122,7 @@ enum ScreenshotRenderer {
         NSGraphicsContext.current = previous
     }
 
-    private static func drawPixelate(_ annotation: ScreenshotSupport.Annotation,
+    private static func drawPixelate(_ annotation: AnnotationElement,
                                      in context: CGContext,
                                      pixelated: CGImage?,
                                      imageSize: CGSize) {
@@ -229,7 +210,7 @@ enum ScreenshotRenderer {
     /// optionally composes the padded backdrop fill behind it, optionally
     /// downscaled to 1x.
     static func renderExport(baseImage: CGImage,
-                             annotations: [ScreenshotSupport.Annotation],
+                             annotations: [AnnotationElement],
                              pixelated: CGImage?,
                              scale: CGFloat,
                              annotationShadowsEnabled: Bool,
@@ -289,7 +270,7 @@ enum ScreenshotRenderer {
     }
 
     private static func renderFlattened(baseImage: CGImage,
-                                        annotations: [ScreenshotSupport.Annotation],
+                                        annotations: [AnnotationElement],
                                         pixelated: CGImage?,
                                         scale: CGFloat,
                                         annotationShadowsEnabled: Bool) -> CGImage? {

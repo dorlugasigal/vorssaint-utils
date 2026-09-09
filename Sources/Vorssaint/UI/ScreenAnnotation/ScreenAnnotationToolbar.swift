@@ -29,7 +29,7 @@ private struct AnnotationToolbarView: View {
                     .buttonStyle(.borderless)
                     .background(service.tool == tool ? Color.accentColor.opacity(0.22) : .clear,
                                 in: RoundedRectangle(cornerRadius: 7))
-                    .help(toolTitle(tool))
+                    .help("\(toolTitle(tool)) (\(tool.shortcutKey.uppercased()))")
                 }
             }
             Divider()
@@ -40,7 +40,7 @@ private struct AnnotationToolbarView: View {
                             .fill(Color(red: color.red, green: color.green, blue: color.blue))
                             .frame(width: 18, height: 18)
                             .overlay(Circle().strokeBorder(
-                                service.color == color ? Color.primary : Color.clear, lineWidth: 2.5))
+                                service.inspectorStyle.color == color ? Color.primary : Color.clear, lineWidth: 2.5))
                     }
                     .buttonStyle(.borderless)
                 }
@@ -58,6 +58,12 @@ private struct AnnotationToolbarView: View {
             AnnotationInspector(style: Binding(get: { service.inspectorStyle }, set: service.setInspectorStyle),
                                 editingChanged: service.styleEditingChanged, tool: service.inspectorTool,
                                 editPoints: service.editLinearPoints, smartDraw: $service.smartDrawEnabled)
+                .disabled(service.selectionIsLocked)
+            if !service.selectedIDs.isEmpty {
+                AnnotationTransformControls(rotation: Binding(get: { service.selectionRotation }, set: service.rotateSelection),
+                                            resize: service.resizeSelection, editingChanged: service.styleEditingChanged)
+                    .disabled(service.selectionIsLocked)
+            }
             HStack {
                 if service.hasLinearConstruction {
                     Button(FeatureStrings.screenshot(localization.language).done, action: service.finishLinearConstruction)

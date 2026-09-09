@@ -267,6 +267,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Annotations/AnnotationRoughness.swift \
         Sources/Vorssaint/Services/Annotations/SmartDrawRecognizer.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationSmartDraw.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationStylePreferences.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationDocument.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationSelection.swift \
         Sources/Vorssaint/Core/AnnotationCommandStrings.swift \
@@ -274,6 +275,7 @@ if (( TEST )); then
         Sources/Vorssaint/Core/AnnotationLinearStrings.swift \
         Sources/Vorssaint/Core/AnnotationTextStrings.swift \
         Sources/Vorssaint/Core/AnnotationInputStrings.swift \
+        Sources/Vorssaint/Core/AnnotationSessionStrings.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationPanelPlacement.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationRenderer.swift \
         Sources/Vorssaint/Core/FeaturePresets.swift \

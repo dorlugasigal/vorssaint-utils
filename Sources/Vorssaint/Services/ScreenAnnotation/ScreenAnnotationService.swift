@@ -15,6 +15,7 @@ import Combine
 /// - No `wantsLayer` on the view — transparent panel + layer = blank output.
 final class ScreenAnnotationService: NSObject, ObservableObject {
     static let shared = ScreenAnnotationService()
+    private let defaults: UserDefaults
 
     // MARK: - Panels
 
@@ -52,7 +53,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     private var strokeStartTime: TimeInterval = 0
     @Published var smartDrawEnabled = false {
         didSet {
-            UserDefaults.standard.set(smartDrawEnabled, forKey: DefaultsKey.screenAnnotationSmartDraw)
+            defaults.set(smartDrawEnabled, forKey: DefaultsKey.screenAnnotationSmartDraw)
             if !smartDrawEnabled { smartDraw.cancel() }
         }
     }
@@ -81,9 +82,13 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     private var sessionGeometry: AnnotationDisplayGeometry?
     private var sessionObservers: [NSObjectProtocol] = []
     private var workspaceObservers: [NSObjectProtocol] = []
+    private var screenLockObserver: NSObjectProtocol?
     private let hotkey = QuickToolHotkey(id: 7)
 
-    private override init() { super.init() }
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        super.init()
+    }
 
     // MARK: - Lifecycle
 
@@ -97,7 +102,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     @objc func toggleDrawing() {
         guard AppFeature.screenAnnotation.isAvailable else { return }
         if canvasPanel == nil {
-            guard let screen = NSScreen.withMouse else {
+            guard let screen = NSScreen.withMouse, screen.isStillAttached else {
                 NSSound.beep()
                 return
             }
@@ -107,18 +112,21 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     @objc func clearAll() {
+        AnnotationColorPanels.closeCurrent()
         cancelGesture()
         document.edit { $0.elements.removeAll(); $0.selection.removeAll() }
         refreshDocument()
     }
 
     @objc func undo() {
+        AnnotationColorPanels.closeCurrent()
         cancelGesture()
         document.undo()
         refreshDocument()
     }
 
     @objc func redo() {
+        AnnotationColorPanels.closeCurrent()
         cancelGesture()
         document.redo()
         refreshDocument()
@@ -129,6 +137,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     func performSelectionAction(_ action: AnnotationSelectionAction) {
+        AnnotationColorPanels.closeCurrent()
         cancelGesture()
         document.edit { AnnotationSelection.apply(action, to: &$0) }
         refreshDocument()
@@ -161,12 +170,20 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         closeSession()
     }
 
+    func yieldDrawingInput() {
+        AnnotationColorPanels.closeCurrent()
+        exitDrawingMode()
+    }
+
     private func closeSession() {
+        AnnotationColorPanels.close(owner: toolbarPanel)
         exitDrawingMode()
         sessionObservers.forEach(NotificationCenter.default.removeObserver)
         workspaceObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         sessionObservers.removeAll()
         workspaceObservers.removeAll()
+        if let screenLockObserver { DistributedNotificationCenter.default().removeObserver(screenLockObserver) }
+        screenLockObserver = nil
         canvasPanel?.orderOut(nil)
         toolbarPanel?.orderOut(nil)
         canvasPanel?.contentView = nil
@@ -204,7 +221,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     private func exitDrawingMode() {
-        drawingView?.cancelInteraction()
+        AnnotationColorPanels.close(owner: toolbarPanel)
+        if let drawingView { drawingView.cancelInteraction() } else { cancelGesture() }
         isDrawingActive = false
         // Keep the strokes visible, but restore pass-through to the app below.
         canvasPanel?.ignoresMouseEvents = ScreenAnnotationSupport.canvasIgnoresMouseEvents(isDrawing: false)
@@ -221,6 +239,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                                                     scale: screen.backingScaleFactor)
         buildCanvasPanel(screen: screen)
         buildToolbarPanel(screen: screen)
+        screenLockObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+                self?.exitDrawingMode()
+            }
         sessionObservers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main) { [weak self] _ in
@@ -232,6 +254,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                     self.closeSession()
                     return
                 }
+                self.sessionScreen = NSScreen.screens.first { $0.displayID == geometry.id }
+                self.fitToolbar()
             })
         for name in [NSWorkspace.willSleepNotification,
                      NSWorkspace.screensDidSleepNotification,
@@ -341,6 +365,12 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                         event.modifierFlags.contains(.shift) ? self.redo() : self.undo()
                         return nil
                     }
+                    if event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
+                       let key = event.charactersIgnoringModifiers?.lowercased(),
+                       let tool = AnnotationTool.allCases.first(where: { $0.shortcutKey == key }) {
+                        self.setTool(tool)
+                        return nil
+                    }
                     switch Int(event.keyCode) {
                     case kVK_Return, kVK_ANSI_KeypadEnter:
                         if self.hasLinearConstruction { self.finishLinearConstruction(); return nil }
@@ -349,7 +379,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                         return nil
                     case kVK_Escape:
                         if self.drawingView?.dismissTextEditor() != true {
-                            self.exitDrawingMode()
+                            if self.document.history.isEditing { self.drawingView?.cancelInteraction() }
+                            else { self.exitDrawingMode() }
                         }
                         return nil
                     default:
@@ -369,20 +400,27 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - Preferences
 
     func loadPreferences() {
-        smartDrawEnabled = UserDefaults.standard.bool(forKey: DefaultsKey.screenAnnotationSmartDraw)
-        if let raw = UserDefaults.standard.string(forKey: DefaultsKey.screenAnnotationTool),
+        smartDrawEnabled = defaults.bool(forKey: DefaultsKey.screenAnnotationSmartDraw)
+        toolStyles = Dictionary(uniqueKeysWithValues:
+            AnnotationStylePreferences.load(defaults: defaults, key: DefaultsKey.screenAnnotationStyles).compactMap {
+                guard let tool = AnnotationTool(rawValue: $0.key) else { return nil }
+                return (tool, $0.value)
+            })
+        if let raw = defaults.string(forKey: DefaultsKey.screenAnnotationTool),
            let t = AnnotationTool(rawValue: raw) { tool = t }
-        if let raw = UserDefaults.standard.string(forKey: DefaultsKey.screenAnnotationColor) {
+        if let raw = defaults.string(forKey: DefaultsKey.screenAnnotationColor) {
             color = colorForPreference(raw)
         }
-        let w = UserDefaults.standard.double(forKey: DefaultsKey.screenAnnotationWidth)
-        width = w > 0 ? min(max(w, 1), 40) : ScreenAnnotationSupport.defaultWidth
+        let w = defaults.double(forKey: DefaultsKey.screenAnnotationWidth)
+        width = w.isFinite && w > 0 ? min(max(w, 1), 40) : ScreenAnnotationSupport.defaultWidth
     }
 
     func setTool(_ t: AnnotationTool) {
+        AnnotationColorPanels.closeCurrent()
         cancelGesture()
+        if tool != t { selectedID = nil }
         tool = t
-        UserDefaults.standard.set(t.rawValue, forKey: DefaultsKey.screenAnnotationTool)
+        defaults.set(t.rawValue, forKey: DefaultsKey.screenAnnotationTool)
         DispatchQueue.main.async { [weak self] in self?.fitToolbar() }
     }
 
@@ -404,6 +442,23 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     var inspectorTool: ScreenshotSupport.Tool {
         strokes.first(where: { $0.id == selectedID })?.tool ?? tool.elementTool ?? .select
     }
+    var selectionIsLocked: Bool {
+        !selectedIDs.isEmpty && strokes.filter { selectedIDs.contains($0.id) }.allSatisfy(\.isLocked)
+    }
+    var selectionRotation: Double {
+        strokes.first(where: { selectedIDs.contains($0.id) }).map { AnnotationSelection.rotation(of: $0) * 180 / .pi } ?? 0
+    }
+
+    func rotateSelection(_ degrees: Double) {
+        let delta = (degrees - selectionRotation) * .pi / 180
+        document.edit { AnnotationSelection.transform(&$0, rotation: delta, factor: 1) }
+        refreshDocument()
+    }
+
+    func resizeSelection(_ factor: Double) {
+        document.edit { AnnotationSelection.transform(&$0, rotation: 0, factor: factor) }
+        refreshDocument()
+    }
 
     func styleEditingChanged(_ editing: Bool) {
         if editing { document.begin() } else {
@@ -415,30 +470,35 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     func setInspectorStyle(_ value: AnnotationStyle) {
         let style = value.sanitized()
+        let previous = inspectorStyle
         let continuous = document.history.isEditing
         if !continuous { document.begin() }
         if selectedID != nil {
             for index in strokes.indices where selectedIDs.contains(strokes[index].id) && !strokes[index].isLocked {
-                strokes[index].style = style
+                strokes[index].style = strokes[index].resolvedStyle.applyingChanges(from: previous, to: style)
                 if !style.bindEndpoints { strokes[index].startBinding = nil; strokes[index].endBinding = nil }
                 if strokes[index].tool == .text { strokes[index].rect = AnnotationRenderer.textBounds(strokes[index], scale: 1) }
             }
         } else {
             toolStyles[tool] = style
+            AnnotationStylePreferences.save(Dictionary(uniqueKeysWithValues: toolStyles.map { ($0.key.rawValue, $0.value) }),
+                                            defaults: defaults, key: DefaultsKey.screenAnnotationStyles)
             color = style.color
             width = style.width
-            UserDefaults.standard.set("\(color.red),\(color.green),\(color.blue),\(color.alpha)",
+            defaults.set("\(color.red),\(color.green),\(color.blue),\(color.alpha)",
                                       forKey: DefaultsKey.screenAnnotationColor)
-            UserDefaults.standard.set(width, forKey: DefaultsKey.screenAnnotationWidth)
+            defaults.set(width, forKey: DefaultsKey.screenAnnotationWidth)
         }
-        if !continuous { document.commit() }
         AnnotationBindings.finishEdit(selectedIDs, elements: &strokes, tolerance: 14)
+        if !continuous { document.commit() }
         refreshDocument()
     }
 
     func colorForPreference(_ value: String) -> AnnotationColor {
-        let parts = value.split(separator: ",").compactMap { Double($0) }
-        if parts.count == 3 || parts.count == 4 {
+        let rawParts = value.split(separator: ",", omittingEmptySubsequences: false)
+        let parts = rawParts.compactMap { Double($0) }
+        if (parts.count == 3 || parts.count == 4) && parts.count == rawParts.count
+            && parts.allSatisfy(\.isFinite) {
             return AnnotationColor(red: parts[0], green: parts[1], blue: parts[2],
                                    alpha: parts.count == 4 ? parts[3] : 1).clamped()
         }
@@ -457,6 +517,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - Stroke entry points (called from AnnotationDrawingView)
 
     fileprivate func beginStroke(at p: NSPoint, bounds: CGRect, extendingSelection: Bool = false) {
+        AnnotationColorPanels.closeCurrent()
         drawingView?.commitTextEditorIfNeeded()
         if var construction = linearConstruction {
             construction.add(p)
@@ -479,7 +540,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             refreshDocument()
             return
         }
-        let selected = strokes.first { $0.id == selectedID }
+        let selected = AnnotationEditGesture.owner(at: p, in: strokes, selection: selectedIDs,
+                                                   scale: 1, imageSize: bounds.size)
         if let selected {
             let handle = AnnotationEditGesture.handle(for: selected, at: p, tolerance: 12)
             if tool != .eraser,
@@ -522,8 +584,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             points: tool.isRectangular || tool.isFreehand ? [] : [p, p], style: creationStyle)
         if tool.isFreehand {
             strokeSampler = AnnotationInputSampler()
-            element.appendFreehand(strokeSampler.sample(p, timestamp: NSApp?.currentEvent?.timestamp ?? 0,
-                                                        hardwarePressure: nil, mode: creationStyle.pressure))
+            let event = NSApp?.currentEvent
+            let hardware = event?.subtype == .tabletPoint ? event.map { CGFloat($0.pressure) } : nil
+            element.appendFreehand(strokeSampler.sample(p, timestamp: event?.timestamp ?? 0,
+                                                        hardwarePressure: hardware, mode: creationStyle.pressure))
         }
         strokes.append(element)
         draftID = element.id
@@ -534,8 +598,11 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     private var creationStyle: AnnotationStyle {
-        toolStyles[tool] ?? AnnotationStyle(color: color, width: width, opacity: tool == .highlighter ? 0.35 : 1,
-                        smooth: false, textSize: max(14, width * 3), mediumTextWeight: true)
+        if let style = toolStyles[tool] { return style }
+        var style = AnnotationStyle(color: color, width: width, opacity: tool == .highlighter ? 0.35 : 1,
+                                    smooth: false, textSize: max(14, width * 3), mediumTextWeight: true)
+        style.isHighlighter = tool == .highlighter
+        return style
     }
 
     fileprivate func beginTextEditing(at point: CGPoint, bounds: CGRect) {
@@ -577,6 +644,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     fileprivate func continueStroke(at p: NSPoint, bounds: CGRect, final: Bool = false) {
+        guard document.history.isEditing else { return }
         defer { AnnotationBindings.resolve(&strokes) }
         let p = NSEvent.modifierFlags.contains(.shift) && (tool == .arrow || tool == .line)
             && editGesture == nil && groupGestures.isEmpty ? AnnotationLinear.constrained(p, from: dragStart) : p
@@ -698,7 +766,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     func syncShortcut() {
         let on = AppFeature.screenAnnotation.isAvailable
-            && UserDefaults.standard.bool(forKey: DefaultsKey.screenAnnotationShortcutEnabled)
+            && defaults.bool(forKey: DefaultsKey.screenAnnotationShortcutEnabled)
         let shortcut = GlobalShortcut.saved(for: DefaultsKey.screenAnnotationShortcut,
                                             fallback: .screenAnnotationDefault)
         hotkey.onPress = { [weak self] in self?.toggleDrawing() }
@@ -708,6 +776,60 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     private func unregisterShortcut() {
         hotkey.unregister()
         shortcutRegistrationFailed = false
+    }
+
+    static func runDataSelfTest(defaults: UserDefaults) -> [String] {
+        let service = ScreenAnnotationService(defaults: defaults)
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ label: String) {
+            if !condition { failures.append("annotation live host: \(label)") }
+        }
+        let bounds = CGRect(x: 0, y: 0, width: 500, height: 400)
+        defaults.set("0.2,0.3,0.4", forKey: DefaultsKey.screenAnnotationColor)
+        defaults.set(12, forKey: DefaultsKey.screenAnnotationWidth)
+        service.loadPreferences()
+        expect(service.color == AnnotationColor(red: 0.2, green: 0.3, blue: 0.4) && service.width == 12,
+               "legacy RGB and width preferences migrate")
+        expect(service.colorForPreference("1,,0,1") == .red, "malformed color does not silently shift channels")
+        service.setTool(.arrow)
+        service.beginStroke(at: CGPoint(x: 20, y: 50), bounds: bounds)
+        service.finishStroke(at: CGPoint(x: 150, y: 50), bounds: bounds)
+        guard let original = service.strokes.first else { return ["annotation live host: creation"] }
+        expect(service.selectedID == original.id && service.tool == .arrow, "completed arrows are immediately selected")
+        service.isDrawingActive = true
+        service.yieldDrawingInput()
+        expect(!service.isDrawingActive && service.strokes == [original], "other tools can release overlay input without losing marks")
+        service.beginStroke(at: CGPoint(x: 150, y: 50), bounds: bounds)
+        service.finishStroke(at: CGPoint(x: 180, y: 70), bounds: bounds)
+        expect(service.strokes.count == 1 && service.strokes[0].points.last == CGPoint(x: 180, y: 70),
+               "selected arrow edits while Arrow remains active")
+        service.undo()
+        expect(service.strokes == [original], "endpoint edit undo is atomic")
+        var headless = service.inspectorStyle
+        headless.endHead = .none
+        service.selectedID = nil
+        service.setInspectorStyle(headless)
+        service.beginStroke(at: CGPoint(x: 260, y: 200), bounds: bounds)
+        service.finishStroke(at: CGPoint(x: 350, y: 240), bounds: bounds)
+        expect(service.strokes[0] == original && service.strokes.count == 2,
+               "starting another annotation does not mutate the previous arrow")
+        expect(service.strokes.last?.resolvedStyle.endHead == AnnotationArrowhead.none
+            && service.selectedID == service.strokes.last?.id && service.tool == .arrow,
+               "headless arrows keep Arrow identity and immediate selection")
+        service.undo()
+        service.setTool(.eraser)
+        service.beginStroke(at: CGPoint(x: 80, y: 0), bounds: bounds)
+        service.finishStroke(at: CGPoint(x: 80, y: 100), bounds: bounds)
+        expect(service.strokes.isEmpty, "eraser sweeps cross sparse arrow samples")
+        service.undo()
+        expect(service.strokes == [original], "eraser undo restores geometry")
+        service.clearAll()
+        service.undo()
+        expect(service.strokes == [original], "clear is reversible")
+        service.closeSession()
+        expect(service.strokes.isEmpty && !service.canUndo && service.canvasPanel == nil && service.toolbarPanel == nil,
+               "close releases session document without creating windows in data tests")
+        return failures
     }
 }
 
