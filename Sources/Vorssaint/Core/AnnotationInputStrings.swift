@@ -2,6 +2,23 @@
 // Copyright (C) 2026 Vorssaint
 
 enum AnnotationInputStrings {
+    static func smartDraw(_ language: AppLanguage) -> String {
+        switch language {
+        case .enUS: return "Smart Draw"
+        case .ptBR: return "Desenho inteligente"
+        case .tr: return "Akıllı çizim"
+        case .ru: return "Умное рисование"
+        case .es: return "Dibujo inteligente"
+        case .de: return "Intelligentes Zeichnen"
+        case .fr: return "Dessin intelligent"
+        case .it: return "Disegno intelligente"
+        case .ja: return "スマート描画"
+        case .ko: return "스마트 그리기"
+        case .zhHans: return "智能绘图"
+        case .zhTW, .zhHK: return "智慧繪圖"
+        }
+    }
+
     static func labels(_ language: AppLanguage) -> [String] {
         switch language {
         case .enUS: return ["Pressure", "Constant", "Tablet", "Simulated", "Smoothing"]

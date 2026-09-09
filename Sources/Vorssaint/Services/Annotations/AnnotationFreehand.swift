@@ -116,7 +116,8 @@ final class AnnotationPathCache {
             return existing.path
         }
         let style = element.resolvedStyle
-        let incremental = element.tool == .freehand && style.pressure == .constant && element.rotation == 0
+        let incremental = element.tool == .freehand && style.pressure == .constant
+            && style.character == .architect && element.rotation == 0
         var core: CGMutablePath?
         let path: CGPath
         if incremental && !element.points.isEmpty {

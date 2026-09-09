@@ -14,6 +14,8 @@ enum AnnotationTests {
         testBindings(expect)
         testText(expect)
         testFreehand(expect)
+        testRoughness(expect)
+        testSmartDraw(expect)
         let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
         for anchor in [CGRect(x: -1900, y: 1100, width: 50, height: 50),
                        CGRect(x: -100, y: 2050, width: 50, height: 50)] {
@@ -434,6 +436,90 @@ enum AnnotationTests {
         for language in AppLanguage.allCases {
             expect(AnnotationInputStrings.labels(language).count == 5, "input controls localized for \(language)")
         }
+    }
+
+    private static func testRoughness(_ expect: (Bool, String) -> Void) {
+        var line = AnnotationElement(tool: .line, points: [CGPoint(x: 20, y: 70), CGPoint(x: 170, y: 70)])
+        let clean = AnnotationGeometry.path(line)
+        var paths: [CGPath] = []
+        for character in AnnotationStyle.Character.allCases {
+            var style = line.resolvedStyle
+            style.character = character
+            line.style = style
+            let path = AnnotationGeometry.path(line)
+            AnnotationPathCache.shared.removeAll()
+            expect(path == AnnotationGeometry.path(line), "rough style \(character) is deterministic across redraws")
+            paths.append(path)
+            for points in AnnotationPathSampling.polylines(path) {
+                expect(points.first == line.points.first && points.last == line.points.last,
+                       "rough paths keep bound endpoints pinned")
+            }
+        }
+        expect(paths[0] == clean && paths[1] != clean && paths[2] != paths[1],
+               "architect artist and cartoonist are distinct opt-in geometries")
+        let previous = AnnotationGeometry.path(line)
+        line.roughSeed &+= 1
+        expect(AnnotationGeometry.path(line) != previous, "rough seed invalidates cached geometry")
+        var doubled = line
+        doubled.points = line.points.map { CGPoint(x: $0.x * 2, y: $0.y * 2) }
+        var scale = CGAffineTransform(scaleX: 2, y: 2)
+        expect(AnnotationGeometry.path(line).copy(using: &scale) == AnnotationGeometry.path(doubled, scale: 2),
+               "rough geometry scales consistently between logical and Retina pixels")
+        for language in AppLanguage.allCases {
+            expect(AnnotationStyleStrings.characters(language).count == 4, "rough styles localized for \(language)")
+        }
+    }
+
+    private static func testSmartDraw(_ expect: (Bool, String) -> Void) {
+        func polygon(_ vertices: [CGPoint]) -> [CGPoint] {
+            zip(vertices, vertices.dropFirst()).flatMap { a, b in
+                (0..<25).map { index in
+                    let t = CGFloat(index) / 25
+                    return CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+                }
+            } + [vertices.last!]
+        }
+        let circle = (0...128).map { index -> CGPoint in
+            let angle = CGFloat(index) / 128 * 2 * .pi
+            return CGPoint(x: 120 + cos(angle) * 80, y: 110 + sin(angle) * 80)
+        }
+        let ellipse = (0...128).map { index -> CGPoint in
+            let angle = CGFloat(index) / 128 * 2 * .pi
+            return CGPoint(x: 150 + cos(angle) * 120, y: 110 + sin(angle) * 50)
+        }
+        let fixtures: [(SmartDrawShapeKind, [CGPoint])] = [
+            (.circle, circle), (.ellipse, ellipse),
+            (.rectangle, polygon([CGPoint(x: 30, y: 40), CGPoint(x: 210, y: 40), CGPoint(x: 210, y: 140), CGPoint(x: 30, y: 140), CGPoint(x: 30, y: 40)])),
+            (.square, polygon([CGPoint(x: 30, y: 40), CGPoint(x: 130, y: 40), CGPoint(x: 130, y: 140), CGPoint(x: 30, y: 140), CGPoint(x: 30, y: 40)])),
+            (.diamond, polygon([CGPoint(x: 120, y: 20), CGPoint(x: 200, y: 100), CGPoint(x: 120, y: 180), CGPoint(x: 40, y: 100), CGPoint(x: 120, y: 20)])),
+            (.arrow, polygon([CGPoint(x: 20, y: 100), CGPoint(x: 180, y: 100), CGPoint(x: 145, y: 65), CGPoint(x: 180, y: 100), CGPoint(x: 145, y: 135)]))
+        ]
+        for (kind, points) in fixtures {
+            let candidate = SmartDrawRecognizer.recognize(points: points, duration: 1, zoomScale: 1)
+            expect(candidate?.kind == kind, "ported Smart Draw recognizes \(kind), got \(String(describing: candidate?.kind))")
+            expect((candidate?.confidence ?? 0) >= SmartDrawStabilityTracker.mediumConfidenceCommitThreshold,
+                   "recognized \(kind) satisfies source confidence policy")
+        }
+        expect(SmartDrawRecognizer.recognize(points: [.zero, CGPoint(x: 2, y: 2)],
+                                            duration: 1, zoomScale: 1) == nil,
+               "unsupported short gestures remain freehand")
+        var generation = SmartDrawRecognitionGenerationState()
+        let first = generation.submit()
+        let newest = generation.submit()
+        expect(!generation.accepts(first) && generation.accepts(newest), "only latest recognition result can apply")
+        generation.beginStroke()
+        expect(!generation.accepts(newest), "closing or replacing a stroke rejects late recognition results")
+        if var candidate = SmartDrawRecognizer.recognize(points: circle, duration: 1, zoomScale: 1) {
+            candidate.confidence = 0.65
+            var stability = SmartDrawStabilityTracker()
+            expect(stability.commitCandidate(final: candidate) == nil, "medium confidence needs repeated stable observations")
+            stability.update(candidate)
+            stability.update(candidate)
+            expect(stability.commitCandidate(final: candidate) != nil, "consistent preview observations permit medium-confidence commit")
+        }
+        expect(SmartDrawRecognizer.preparedPoints(Array(repeating: circle, count: 50).flatMap { $0 },
+            zoomScale: 1).count <= SmartDrawRecognitionBudget.maximumInputPointCount,
+               "recognition bounds input without truncating the document stroke")
     }
 
     private static func bitmap(_ draw: (CGContext) -> Void) -> Data? {

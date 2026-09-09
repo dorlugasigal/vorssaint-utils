@@ -132,6 +132,14 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var marqueeSelection: Set<UUID> = []
     private var linearConstruction: AnnotationLinearConstruction?
     private var strokeSampler = AnnotationInputSampler()
+    private let smartDraw = AnnotationSmartDraw()
+    private var strokeStartTime: TimeInterval = 0
+    @Published var smartDrawEnabled = false {
+        didSet {
+            UserDefaults.standard.set(smartDrawEnabled, forKey: DefaultsKey.screenshotSmartDraw)
+            if !smartDrawEnabled { smartDraw.cancel() }
+        }
+    }
     var hasLinearConstruction: Bool { linearConstruction != nil }
     private var activeHandle: ScreenshotSupport.Handle?
     private var cropResizeOrigin: CGRect?
@@ -195,6 +203,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         baseImage = image
         self.scale = scale
         let defaults = UserDefaults.standard
+        smartDrawEnabled = defaults.bool(forKey: DefaultsKey.screenshotSmartDraw)
         var lastTool = ScreenshotSupport.Tool(
             rawValue: defaults.string(forKey: DefaultsKey.screenshotLastTool) ?? "") ?? .arrow
         if lastTool == .select || lastTool == .crop { lastTool = .arrow }
@@ -431,12 +440,14 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     func undo() {
+        smartDraw.cancel()
         if linearConstruction != nil { cancelLinearConstruction(); return }
         guard let last = history.undo(snapshot) else { return }
         restore(last)
     }
 
     func redo() {
+        smartDraw.cancel()
         if linearConstruction != nil { cancelLinearConstruction(); return }
         guard let next = history.redo(snapshot) else { return }
         restore(next)
@@ -528,6 +539,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     // MARK: - Gestures (image-pixel coordinates)
 
     func beginDrag(at point: CGPoint, extendingSelection: Bool = false) {
+        smartDraw.cancel()
+        strokeStartTime = ProcessInfo.processInfo.systemUptime
         if var construction = linearConstruction {
             construction.add(point)
             linearConstruction = construction
@@ -672,6 +685,10 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             let samples = strokeSampler.sample(point, timestamp: event?.timestamp ?? ProcessInfo.processInfo.systemUptime,
                 hardwarePressure: hardware, mode: mode, final: final)
             updateDraft { $0.appendFreehand(samples) }
+            if smartDrawEnabled, let element = annotations.first(where: { $0.id == draftID }) {
+                let now = ProcessInfo.processInfo.systemUptime
+                smartDraw.preview(element, timestamp: now, duration: now - strokeStartTime, scale: 1 / scale)
+            }
         case .rect, .ellipse, .highlight, .pixelate, .redact:
             updateDraft { $0.rect = ScreenshotSupport.selectionRect(from: dragStart, to: point) }
         case .text, .sticker, .counter:
@@ -720,6 +737,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             AnnotationBindings.finishEdit(selectedIDs.union(Set(draftID.map { [$0] } ?? [])),
                                           elements: &annotations, tolerance: 14 * scale)
             if editingTextID == nil { history.commit(snapshot) }
+            recognizeCompletedStroke()
             refreshUndoFlags()
             refreshDirtyState()
             annotationGesture = nil
@@ -857,6 +875,17 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         clearTextSelection()
         tool = .select
         return true
+    }
+
+    private func recognizeCompletedStroke() {
+        guard smartDrawEnabled, let completed = annotations.first(where: { $0.id == draftID && $0.tool == .freehand }) else { return }
+        smartDraw.finish(completed, duration: ProcessInfo.processInfo.systemUptime - strokeStartTime, scale: 1 / scale) { [weak self] converted in
+            guard let self, let index = self.annotations.firstIndex(where: {
+                $0.id == completed.id && $0.geometryRevision == completed.geometryRevision
+            }) else { return }
+            self.annotations[index] = converted
+            self.refreshDirtyState()
+        }
     }
 
     func previewLinear(at point: CGPoint) {

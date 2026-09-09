@@ -25,6 +25,7 @@ struct AnnotationElement: Identifiable, Equatable {
     var pressures: [CGFloat] = [] { didSet { geometryRevision = UUID() } }
     private(set) var geometryRevision = UUID()
     private(set) var appendBaseRevision = UUID()
+    var roughSeed: UInt64 = 0 { didSet { geometryRevision = UUID() } }
 
     mutating func appendFreehand(_ samples: [AnnotationInputSample]) {
         guard !samples.isEmpty else { return }
@@ -41,6 +42,7 @@ struct AnnotationElement: Identifiable, Equatable {
             && lhs.rotation == rhs.rotation && lhs.groupID == rhs.groupID && lhs.isLocked == rhs.isLocked
             && lhs.controls == rhs.controls && lhs.startBinding == rhs.startBinding
             && lhs.endBinding == rhs.endBinding && lhs.pressures == rhs.pressures
+            && lhs.roughSeed == rhs.roughSeed
     }
 
     init(id: UUID = UUID(), tool: ScreenshotSupport.Tool, rect: CGRect = .zero,
@@ -56,6 +58,7 @@ struct AnnotationElement: Identifiable, Equatable {
         self.stroke = stroke
         self.number = number
         self.style = style
+        roughSeed = id.uuidString.utf8.reduce(UInt64(0xcbf29ce484222325)) { ($0 ^ UInt64($1)) &* 0x100000001b3 }
     }
 
     var resolvedStyle: AnnotationStyle {
@@ -81,6 +84,7 @@ struct AnnotationStyle: Equatable {
     enum FontFamily: Int, CaseIterable { case system, serif, monospace, handwriting }
     enum Alignment: Int, CaseIterable { case left, center, right }
     enum Pressure: Int, CaseIterable { case constant, hardware, simulated }
+    enum Character: Int, CaseIterable { case architect, artist, cartoonist }
     var color: AnnotationColor
     var width: CGFloat
     var opacity: CGFloat = 1
@@ -102,6 +106,7 @@ struct AnnotationStyle: Equatable {
     var textAlignment: Alignment = .left
     var boldText = false
     var pressure: Pressure = .constant
+    var character: Character = .architect
 
     func sanitized() -> AnnotationStyle {
         var result = self
@@ -141,11 +146,11 @@ enum AnnotationGeometry {
             var style = element.resolvedStyle
             style.width *= scale
             scaled.style = style
-            return uncachedPath(scaled)
+            return uncachedPath(scaled, renderScale: scale)
         }
     }
 
-    static func uncachedPath(_ element: AnnotationElement) -> CGPath {
+    static func uncachedPath(_ element: AnnotationElement, renderScale: CGFloat = 1) -> CGPath {
         let path = CGMutablePath()
         switch element.tool {
         case .rect:
@@ -191,8 +196,11 @@ enum AnnotationGeometry {
             if let last = element.points.last { path.addLine(to: last) }
         case .text, .sticker, .counter, .select, .crop: break
         }
+        let rough = element.tool == .redact || element.tool == .highlight || element.tool == .pixelate
+            ? path : AnnotationRoughness.path(path, character: element.resolvedStyle.character,
+                                             seed: element.roughSeed, width: element.resolvedStyle.width, scale: renderScale)
         var transform = transform(element)
-        return path.copy(using: &transform) ?? path
+        return rough.copy(using: &transform) ?? rough
     }
 
     static func hit(_ element: AnnotationElement, at point: CGPoint, scale: CGFloat,

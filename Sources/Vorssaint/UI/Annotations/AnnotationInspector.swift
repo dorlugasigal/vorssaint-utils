@@ -9,6 +9,7 @@ struct AnnotationInspector: View {
     var editingChanged: (Bool) -> Void
     var tool: ScreenshotSupport.Tool
     var editPoints: (Bool) -> Void = { _ in }
+    var smartDraw: Binding<Bool> = .constant(false)
     @ObservedObject private var localization = L10n.shared
 
     private var strings: ScreenshotFeatureStrings { FeatureStrings.screenshot(localization.language) }
@@ -32,6 +33,13 @@ struct AnnotationInspector: View {
                 .accessibilityLabel(AnnotationSessionStrings.opacity(localization.language))
             }
             if tool == .rect || tool == .ellipse || tool == .line || tool == .arrow || tool == .freehand {
+                let characters = AnnotationStyleStrings.characters(localization.language)
+                Picker(characters[0], selection: $style.character) {
+                    ForEach(AnnotationStyle.Character.allCases, id: \.rawValue) { character in
+                        Text(characters[character.rawValue + 1]).tag(character)
+                    }
+                }
+                .frame(width: 210)
                 HStack(spacing: 10) {
                     AnnotationVisualChoices(values: AnnotationStyle.Pattern.allCases, selection: $style.pattern,
                         label: { AnnotationStyleStrings.patternName($0, localization.language) },
@@ -107,6 +115,7 @@ struct AnnotationInspector: View {
             }
             if tool == .freehand {
                 let labels = AnnotationInputStrings.labels(localization.language)
+                Toggle(AnnotationInputStrings.smartDraw(localization.language), isOn: smartDraw)
                 HStack {
                     Picker(labels[0], selection: $style.pressure) {
                         ForEach(AnnotationStyle.Pressure.allCases, id: \.rawValue) { pressure in
