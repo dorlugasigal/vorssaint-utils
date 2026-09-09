@@ -107,6 +107,7 @@ struct AnnotationEditGesture {
         case resize(ScreenshotSupport.Handle)
         case point(Int)
         case control(Int)
+        case midpoint(Int)
     }
     let original: AnnotationElement
     let anchor: CGPoint
@@ -120,6 +121,10 @@ struct AnnotationEditGesture {
             if let index = element.points.indices.first(where: {
                 hypot(element.points[$0].x - point.x, element.points[$0].y - point.y) <= tolerance
             }) { return .point(index) }
+            let midpoints = AnnotationLinear.midpoints(element)
+            if let index = midpoints.indices.first(where: {
+                hypot(midpoints[$0].x - point.x, midpoints[$0].y - point.y) <= tolerance
+            }) { return .midpoint(index) }
             if element.resolvedStyle.curved {
                 let controls = AnnotationLinear.controls(element)
                 if let index = controls.indices.first(where: {
@@ -138,6 +143,10 @@ struct AnnotationEditGesture {
         guard !original.isLocked else { return original }
         var result = original
         switch handle {
+        case .midpoint(let segment):
+            let split = AnnotationLinear.insertingPoint(in: original, segment: segment)
+            guard split.points.count == original.points.count + 1 else { return original }
+            return AnnotationEditGesture(original: split, anchor: anchor, handle: .point(segment + 1)).updated(to: point)
         case .move:
             let delta = CGPoint(x: point.x - anchor.x, y: point.y - anchor.y)
             result.rect = original.rect.offsetBy(dx: delta.x, dy: delta.y)

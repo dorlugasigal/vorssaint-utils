@@ -13,6 +13,81 @@ enum AnnotationArrowhead: Int, CaseIterable {
 }
 
 enum AnnotationLinear {
+    static func creationStyle(for tool: ScreenshotSupport.Tool, base: AnnotationStyle) -> AnnotationStyle {
+        var style = base
+        style.curved = tool == .arrow
+        return style
+    }
+
+    static func midpoints(_ element: AnnotationElement) -> [CGPoint] {
+        guard (element.tool == .arrow || element.tool == .line), element.points.count >= 2 else { return [] }
+        let controls = controls(element)
+        return (0..<(element.points.count - 1)).map { segment in
+            let start = element.points[segment], end = element.points[segment + 1]
+            if !element.resolvedStyle.curved { return midpoint(start, end) }
+            let left = midpoint(start, controls[segment * 2])
+            let middle = midpoint(controls[segment * 2], controls[segment * 2 + 1])
+            let right = midpoint(controls[segment * 2 + 1], end)
+            return midpoint(midpoint(left, middle), midpoint(middle, right))
+        }
+    }
+
+    /// De Casteljau subdivision inserts a draggable knot without changing the
+    /// existing cubic or replacing the user's other custom control handles.
+    static func insertingPoint(in element: AnnotationElement, segment: Int) -> AnnotationElement {
+        guard !element.isLocked, (element.tool == .arrow || element.tool == .line),
+              segment >= 0, segment + 1 < element.points.count else { return element }
+        var result = element
+        let start = element.points[segment], end = element.points[segment + 1]
+        let point: CGPoint
+        if element.resolvedStyle.curved {
+            var controls = controls(element)
+            let left = midpoint(start, controls[segment * 2])
+            let middle = midpoint(controls[segment * 2], controls[segment * 2 + 1])
+            let right = midpoint(controls[segment * 2 + 1], end)
+            let innerLeft = midpoint(left, middle), innerRight = midpoint(middle, right)
+            point = midpoint(innerLeft, innerRight)
+            controls.replaceSubrange((segment * 2)...(segment * 2 + 1), with: [left, innerLeft, innerRight, right])
+            result.controls = controls
+        } else {
+            point = midpoint(start, end)
+            result.controls = []
+        }
+        result.points.insert(point, at: segment + 1)
+        return worldAligned(result, relativeTo: element)
+    }
+
+    static func removingPoint(in element: AnnotationElement, index: Int) -> AnnotationElement {
+        guard !element.isLocked, (element.tool == .arrow || element.tool == .line),
+              index > 0, index + 1 < element.points.count else { return element }
+        var result = element
+        if element.resolvedStyle.curved {
+            var controls = controls(element)
+            let start = (index - 1) * 2
+            let outer = [controls[start], controls[start + 3]]
+            controls.replaceSubrange(start..<(start + 4), with: outer)
+            result.controls = controls
+        } else { result.controls = [] }
+        result.points.remove(at: index)
+        return worldAligned(result, relativeTo: element)
+    }
+
+    private static func worldAligned(_ element: AnnotationElement, relativeTo original: AnnotationElement) -> AnnotationElement {
+        guard original.rotation != 0 else { return element }
+        // Inserting/removing knots can change the bounds-derived rotation pivot.
+        // Bake the old transform into linear geometry to avoid moving the curve.
+        let transform = AnnotationGeometry.transform(original)
+        var result = element
+        result.points = result.points.map { $0.applying(transform) }
+        result.controls = result.controls.map { $0.applying(transform) }
+        result.rotation = 0
+        return result
+    }
+
+    private static func midpoint(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
+        CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+    }
+
     static func editPoints(_ insert: Bool, in element: inout AnnotationElement) {
         guard !element.isLocked, element.tool == .arrow || element.tool == .line,
               element.points.count >= 2 else { return }

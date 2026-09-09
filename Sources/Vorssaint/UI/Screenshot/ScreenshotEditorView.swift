@@ -517,6 +517,7 @@ struct ScreenshotEditorView: View {
         cg.setLineWidth(1.5 * scale)
         cg.setLineDash(phase: 0, lengths: [4 * scale, 3 * scale])
         if selected.points.count >= 2, selected.tool != .freehand, !selected.isLocked {
+            AnnotationRenderer.drawLinearMidpoints(selected, in: cg, scale: scale)
             for point in selected.points + (selected.resolvedStyle.curved ? AnnotationLinear.controls(selected) : []) {
                 cg.setFillColor(CGColor(gray: 1, alpha: 1))
                 let handle = CGRect(x: point.x - 4 * scale, y: point.y - 4 * scale,

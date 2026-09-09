@@ -14,6 +14,7 @@ enum AnnotationTests {
         testShapeStyles(expect)
         testLinear(expect)
         testLinearFinishing(expect)
+        testCanvasLinearPoints(expect)
         testBindings(expect)
         testText(expect)
         testFreehand(expect)
@@ -549,6 +550,81 @@ enum AnnotationTests {
         collapsed.controls = collapsed.points
         expect(AnnotationLinear.endpointAdjacent(collapsed, atStart: false) == .zero,
                "degenerate endpoint control falls back to the neighboring distinct knot")
+    }
+
+    private static func testCanvasLinearPoints(_ expect: (Bool, String) -> Void) {
+        let base = AnnotationStyle(color: .red, width: 4)
+        expect(AnnotationLinear.creationStyle(for: .arrow, base: base).curved,
+               "new arrows default to curved routing")
+        expect(!AnnotationLinear.creationStyle(for: .line, base: base).curved
+               && !AnnotationElement(tool: .arrow).resolvedStyle.curved,
+               "straight line defaults and existing legacy annotation styles remain unchanged")
+        var curve = AnnotationElement(tool: .arrow,
+            points: [CGPoint(x: 20, y: 120), CGPoint(x: 180, y: 120), CGPoint(x: 260, y: 100)],
+            style: AnnotationStyle(color: .red, width: 4, curved: true, endHead: .none))
+        curve.controls = [CGPoint(x: 40, y: 10), CGPoint(x: 160, y: 30),
+                          CGPoint(x: 200, y: 180), CGPoint(x: 240, y: 170)]
+        let midpoint = AnnotationLinear.midpoints(curve)[0]
+        expect(AnnotationEditGesture.handle(for: curve, at: midpoint, tolerance: 3) == .midpoint(0),
+               "curve midpoint is directly reachable on canvas")
+        let split = AnnotationLinear.insertingPoint(in: curve, segment: 0)
+        expect(split.points == [curve.points[0], midpoint, curve.points[1], curve.points[2]],
+               "clicking midpoint inserts a knot on the actual cubic rather than its bounding chord")
+        expect(Array(split.controls.suffix(2)) == Array(curve.controls.suffix(2)),
+               "subdivision preserves unrelated custom controls")
+        let originalSamples = AnnotationPathSampling.polylines(AnnotationLinear.path(curve))[0]
+        let splitSamples = AnnotationPathSampling.polylines(AnnotationLinear.path(split))[0]
+        for index in 0...16 {
+            expect(hypot(originalSamples[index].x - splitSamples[index * 2].x,
+                         originalSamples[index].y - splitSamples[index * 2].y) < 0.000_001,
+                   "midpoint insertion preserves every sampled point of the original cubic")
+        }
+        let gesture = AnnotationEditGesture(original: curve, anchor: midpoint, handle: .midpoint(0))
+        let destination = CGPoint(x: midpoint.x + 20, y: midpoint.y + 30)
+        let moved = gesture.updated(to: destination)
+        expect(moved.points[1] == destination && moved.points.count == curve.points.count + 1,
+               "dragging a midpoint directly places one new bend")
+        expect(gesture.updated(to: CGPoint(x: destination.x + 10, y: destination.y)).points.count == moved.points.count,
+               "continuous midpoint drag does not insert a vertex on each mouse sample")
+        expect(Array(moved.controls.suffix(2)) == Array(curve.controls.suffix(2)),
+               "midpoint dragging keeps unrelated manual curve handles intact")
+        var rotated = curve
+        rotated.rotation = .pi / 3
+        let worldMidpoint = midpoint.applying(AnnotationGeometry.transform(rotated))
+        expect(AnnotationEditGesture.handle(for: rotated, at: worldMidpoint, tolerance: 3) == .midpoint(0),
+               "rotated midpoint handles hit-test in their painted coordinate system")
+        let rotatedGesture = AnnotationEditGesture(original: rotated, anchor: worldMidpoint, handle: .midpoint(0))
+        let rotatedDestination = destination.applying(AnnotationGeometry.transform(rotated))
+        let rotatedMoved = rotatedGesture.updated(to: rotatedDestination)
+        let visiblePoint = rotatedMoved.points[1].applying(AnnotationGeometry.transform(rotatedMoved))
+        expect(hypot(visiblePoint.x - rotatedDestination.x, visiblePoint.y - rotatedDestination.y) < 0.000_001,
+               "rotated midpoint follows the pointer without shifting the bounds-derived rotation pivot")
+
+        let removed = AnnotationLinear.removingPoint(in: curve, index: 1)
+        expect(removed.points == [curve.points[0], curve.points[2]]
+               && removed.controls == [curve.controls[0], curve.controls[3]],
+               "direct interior-knot removal preserves both outer tangent controls")
+        expect(AnnotationLinear.removingPoint(in: curve, index: 0) == curve
+               && AnnotationLinear.removingPoint(in: curve, index: curve.points.count - 1) == curve,
+               "endpoint double-click cannot delete an arrow endpoint")
+        var locked = curve
+        locked.isLocked = true
+        expect(AnnotationLinear.insertingPoint(in: locked, segment: 0) == locked
+               && AnnotationLinear.removingPoint(in: locked, index: 1) == locked,
+               "locked arrows reject direct point insertion and removal")
+        var document = AnnotationDocument()
+        document.elements = [curve]
+        document.selectedIDs = [curve.id]
+        document.begin()
+        document.elements[0] = moved
+        document.cancel()
+        expect(document.elements == [curve], "cancelling a midpoint drag restores the untouched cubic")
+        document.begin()
+        document.elements[0] = moved
+        document.commit()
+        document.undo()
+        expect(document.elements == [curve] && !document.history.canUndo,
+               "midpoint placement and drag share one undo transaction")
     }
 
     private static func testBindings(_ expect: (Bool, String) -> Void) {

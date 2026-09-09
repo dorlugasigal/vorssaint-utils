@@ -6,6 +6,25 @@ import AppKit
 /// The annotation paint pass, shared by the transparent desktop canvas,
 /// screenshot preview and pixel export. Image effects remain in the host.
 enum AnnotationRenderer {
+    static func drawLinearMidpoints(_ element: AnnotationElement, in context: CGContext, scale: CGFloat) {
+        guard !element.isLocked else { return }
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.setLineDash(phase: 0, lengths: [])
+        context.setStrokeColor(NSColor.systemBlue.cgColor)
+        context.setFillColor(NSColor.white.withAlphaComponent(0.8).cgColor)
+        context.setLineWidth(scale)
+        for point in AnnotationLinear.midpoints(element) {
+            let radius = 4 * scale
+            context.move(to: CGPoint(x: point.x, y: point.y - radius))
+            context.addLine(to: CGPoint(x: point.x + radius, y: point.y))
+            context.addLine(to: CGPoint(x: point.x, y: point.y + radius))
+            context.addLine(to: CGPoint(x: point.x - radius, y: point.y))
+            context.closePath()
+            context.drawPath(using: .fillStroke)
+        }
+    }
+
     static func drawLinearFinishHandle(at point: CGPoint, in context: CGContext, scale: CGFloat) {
         context.saveGState()
         defer { context.restoreGState() }

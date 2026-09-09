@@ -155,10 +155,15 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var newTextID: UUID?
     private var annotationStyleDefaults: AnnotationStyle?
     private var freehandStyleDefaults: AnnotationStyle?
+    private var linearStyleDefaults: [ScreenshotSupport.Tool: AnnotationStyle] = [:]
 
     var creationStyle: AnnotationStyle {
         if tool == .freehand, let freehandStyleDefaults { return freehandStyleDefaults }
-        return annotationStyleDefaults ?? AnnotationElement(tool: tool, color: color, stroke: stroke).resolvedStyle
+        let base = annotationStyleDefaults ?? AnnotationElement(tool: tool, color: color, stroke: stroke).resolvedStyle
+        if tool == .arrow || tool == .line {
+            return linearStyleDefaults[tool] ?? AnnotationLinear.creationStyle(for: tool, base: base)
+        }
+        return base
     }
 
     var shapeGhost: AnnotationElement? {
@@ -208,6 +213,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             AnnotationBindings.finishEdit(selectedIDs, elements: &annotations, tolerance: 14 * scale)
         } else {
             if tool == .freehand { freehandStyleDefaults = style }
+            else if tool == .arrow || tool == .line { linearStyleDefaults[tool] = style }
             else { annotationStyleDefaults = style }
             objectWillChange.send()
         }
@@ -609,7 +615,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             registerUndo()
             dragRegistered = true
             let annotation = ScreenshotSupport.Annotation(
-                tool: tool, points: [point, point], color: color, stroke: stroke, style: annotationStyleDefaults)
+                tool: tool, points: [point, point], color: color, stroke: stroke, style: creationStyle)
             annotations.append(annotation)
             draftID = annotation.id
             linearConstruction = AnnotationLinearConstruction(element: annotation, at: point, viewScale: currentDisplayZoom)
@@ -781,7 +787,15 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             dragRegistered = false
             editingSelectedAnnotation = false
         }
-        if !isTap { continueDrag(to: point, final: true) }
+        if isTap, clickCount >= 2, let gesture = annotationGesture, case .point(let vertex) = gesture.handle,
+           vertex > 0, vertex + 1 < gesture.original.points.count,
+           let index = annotations.firstIndex(where: { $0.id == gesture.original.id }) {
+            registerUndo()
+            dragRegistered = true
+            annotations[index] = AnnotationLinear.removingPoint(in: gesture.original, index: vertex)
+        } else if isTap, let gesture = annotationGesture, case .midpoint = gesture.handle {
+            continueSelectDrag(to: point)
+        } else if !isTap { continueDrag(to: point, final: true) }
         if editingSelectedAnnotation {
             finishSelectDrag(at: point, isTap: isTap)
             return
@@ -955,6 +969,15 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
 
     @discardableResult
     func cancelLinearConstruction() -> Bool {
+        if linearConstruction == nil, let gesture = annotationGesture,
+           gesture.original.tool == .arrow || gesture.original.tool == .line {
+            cancelledLinearPointer = true
+            if let original = history.cancel() { restore(original) }
+            annotationGesture = nil
+            groupGestures.removeAll()
+            dragRegistered = false
+            return true
+        }
         guard let construction = linearConstruction else { return false }
         cancelledLinearPointer = cancelledLinearPointer || construction.pointerIsDown
         if let original = history.cancel() { restore(original) }

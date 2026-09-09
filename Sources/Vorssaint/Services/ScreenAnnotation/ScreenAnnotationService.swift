@@ -588,6 +588,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         toolStyles[tool] ?? AnnotationStyle(color: tool == .highlighter ? AnnotationBrush.neonColors[0] : color,
                         width: width, opacity: tool == .highlighter ? 0.35 : 1,
                         smooth: false, textSize: max(14, width * 3), mediumTextWeight: true,
+                        curved: tool == .arrow,
                         isHighlighter: tool == .highlighter)
     }
 
@@ -686,7 +687,14 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             else { refreshDocument() }
             return
         }
-        continueStroke(at: point, bounds: bounds, final: true)
+        if clickCount >= 2, let gesture = editGesture, case .point(let vertex) = gesture.handle,
+           vertex > 0, vertex + 1 < gesture.original.points.count,
+           hypot(point.x - dragStart.x, point.y - dragStart.y) <= 4,
+           let index = strokes.firstIndex(where: { $0.id == gesture.original.id }) {
+            strokes[index] = AnnotationLinear.removingPoint(in: gesture.original, index: vertex)
+        } else {
+            continueStroke(at: point, bounds: bounds, final: true)
+        }
         if tool == .eraser {
             eraserSweep.commit(to: &document.state)
             document.commit()
@@ -921,6 +929,8 @@ private final class AnnotationDrawingView: NSView {
                 ctx.setLineDash(phase: 0, lengths: [5, 3])
                 ctx.stroke(AnnotationGeometry.visualBounds(stroke).insetBy(dx: -6, dy: -6))
                 if !stroke.isLocked && (stroke.tool == .arrow || stroke.tool == .line) {
+                    ctx.concatenate(AnnotationGeometry.transform(stroke))
+                    AnnotationRenderer.drawLinearMidpoints(stroke, in: ctx, scale: 1)
                     ctx.setLineDash(phase: 0, lengths: [])
                     ctx.setFillColor(NSColor.white.cgColor)
                     let handles = stroke.points + (stroke.resolvedStyle.curved ? AnnotationLinear.controls(stroke) : [])
