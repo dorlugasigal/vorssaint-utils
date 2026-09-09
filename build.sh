@@ -263,6 +263,8 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Annotations/AnnotationLinear.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationBindings.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationFreehand.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationBrush.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationInteractionFeedback.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationPathSampling.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationRoughness.swift \
         Sources/Vorssaint/Services/Annotations/SmartDrawRecognizer.swift \

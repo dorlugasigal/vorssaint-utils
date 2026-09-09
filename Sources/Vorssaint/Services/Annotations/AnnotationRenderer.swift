@@ -29,9 +29,10 @@ enum AnnotationRenderer {
         context.setStrokeColor(color(style).cgColor)
         context.setFillColor(color(style).cgColor)
         context.setLineWidth(scaledStyle.width)
-        context.setLineCap(.round)
-        context.setLineJoin(.round)
-        switch style.pattern {
+        let highlighter = annotation.tool == .freehand && style.isHighlighter
+        context.setLineCap(highlighter ? .butt : .round)
+        context.setLineJoin(highlighter ? .bevel : .round)
+        switch highlighter ? .solid : style.pattern {
         case .solid: break
         case .dashed: context.setLineDash(phase: 0, lengths: [6 * scaledStyle.width, 3 * scaledStyle.width])
         case .dotted: context.setLineDash(phase: 0, lengths: [0, 2.5 * scaledStyle.width])
@@ -46,7 +47,7 @@ enum AnnotationRenderer {
             context.fillPath()
         case .redact:
             context.fillPath()
-        case .freehand where style.pressure != .constant:
+        case .freehand where annotation.points.count == 1 || (style.pressure != .constant && !highlighter):
             context.fillPath()
         case .highlight:
             context.setBlendMode(.multiply)

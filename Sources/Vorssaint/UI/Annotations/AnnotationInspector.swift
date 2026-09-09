@@ -10,6 +10,7 @@ struct AnnotationInspector: View {
     var tool: ScreenshotSupport.Tool
     var editPoints: (Bool) -> Void = { _ in }
     var smartDraw: Binding<Bool> = .constant(false)
+    var allowsHighlighter = false
     @ObservedObject private var localization = L10n.shared
 
     private var strings: ScreenshotFeatureStrings { FeatureStrings.screenshot(localization.language) }
@@ -32,7 +33,7 @@ struct AnnotationInspector: View {
                 .frame(width: 85)
                 .accessibilityLabel(AnnotationSessionStrings.opacity(localization.language))
             }
-            if tool == .rect || tool == .ellipse || tool == .line || tool == .arrow || tool == .freehand {
+            if tool == .rect || tool == .ellipse || tool == .line || tool == .arrow || (tool == .freehand && !style.isHighlighter) {
                 let characters = AnnotationStyleStrings.characters(localization.language)
                 Picker(characters[0], selection: $style.character) {
                     ForEach(AnnotationStyle.Character.allCases, id: \.rawValue) { character in
@@ -115,14 +116,47 @@ struct AnnotationInspector: View {
             }
             if tool == .freehand {
                 let labels = AnnotationInputStrings.labels(localization.language)
-                Toggle(AnnotationInputStrings.smartDraw(localization.language), isOn: smartDraw)
-                HStack {
-                    Picker(labels[0], selection: $style.pressure) {
-                        ForEach(AnnotationStyle.Pressure.allCases, id: \.rawValue) { pressure in
-                            Text(labels[pressure.rawValue + 1]).tag(pressure)
+                if allowsHighlighter {
+                    Toggle(FeatureStrings.annotation(localization.language).highlighter,
+                           isOn: Binding(get: { style.isHighlighter }, set: { enabled in
+                        var updated = style
+                        updated.isHighlighter = enabled
+                        updated.opacity = enabled ? 0.35 : 1
+                        if enabled {
+                            updated.color = AnnotationBrush.neonColors[0]
+                            updated.pressure = .constant
+                            updated.pattern = .solid
+                            updated.character = .architect
+                        }
+                        style = updated
+                    }))
+                    if style.isHighlighter {
+                        HStack {
+                            ForEach(Array(AnnotationBrush.neonColors.enumerated()), id: \.offset) { _, color in
+                                Button { style.color = color } label: {
+                                    Circle().fill(Color(red: color.red, green: color.green, blue: color.blue))
+                                        .frame(width: 18, height: 18)
+                                        .overlay(Circle().strokeBorder(
+                                            style.color == color ? Color.primary : .clear, lineWidth: 2))
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel(strings.colorLabel)
+                            }
                         }
                     }
-                    .frame(width: 190)
+                }
+                if !style.isHighlighter {
+                    Toggle(AnnotationInputStrings.smartDraw(localization.language), isOn: smartDraw)
+                }
+                HStack {
+                    if !style.isHighlighter {
+                        Picker(labels[0], selection: $style.pressure) {
+                            ForEach(AnnotationStyle.Pressure.allCases, id: \.rawValue) { pressure in
+                                Text(labels[pressure.rawValue + 1]).tag(pressure)
+                            }
+                        }
+                        .frame(width: 190)
+                    }
                     Toggle(labels[4], isOn: $style.smooth)
                 }
             }

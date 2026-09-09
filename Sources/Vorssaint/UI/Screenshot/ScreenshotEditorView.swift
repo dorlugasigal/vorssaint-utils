@@ -15,6 +15,7 @@ struct ScreenshotEditorView: View {
     @State private var dragInFlight = false
     @State private var dragStartView: CGPoint = .zero
     @State private var appeared = false
+    @State private var hoverPoint: CGPoint?
     @State private var backdropPopoverShown = false
     @State private var hoveredTool: ScreenshotSupport.Tool?
     @State private var toolOptionsShown = false
@@ -46,7 +47,8 @@ struct ScreenshotEditorView: View {
                     && model.tool != .sticker && model.tool != .counter {
                     AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
                                         editingChanged: model.styleEditingChanged, tool: model.inspectorTool,
-                                        editPoints: model.editLinearPoints, smartDraw: $model.smartDrawEnabled)
+                                        editPoints: model.editLinearPoints, smartDraw: $model.smartDrawEnabled,
+                                        allowsHighlighter: true)
                         .padding(.horizontal, 12)
                 }
                 HStack(spacing: 0) {
@@ -211,21 +213,19 @@ struct ScreenshotEditorView: View {
             switch phase {
             case .active(let location):
                 let point = imagePoint(from: location, zoom: zoom)
+                hoverPoint = point
                 model.previewLinear(at: point)
-                if model.tool != .select, model.selectedAnnotationOwns(point) {
-                    NSCursor.openHand.set()
-                } else if model.tool != .select {
-                    NSCursor.crosshair.set()
-                } else if model.wordIndex(at: point) != nil {
-                    // Recognized text under the cursor reads as text.
-                    NSCursor.iBeam.set()
-                } else {
-                    NSCursor.arrow.set()
-                }
+                updateCursor(zoom: zoom)
             case .ended:
+                hoverPoint = nil
                 NSCursor.arrow.set()
             }
         }
+        .onChange(of: model.inspectorStyle) { _, _ in updateCursor(zoom: zoom) }
+        .onChange(of: model.tool) { _, _ in updateCursor(zoom: zoom) }
+        .onChange(of: model.editingTextID) { _, _ in updateCursor(zoom: zoom) }
+        .onChange(of: zoom) { _, _ in updateCursor(zoom: zoom) }
+        .onDisappear { hoverPoint = nil; NSCursor.arrow.set() }
         .overlay(alignment: .topLeading) {
             textEditorOverlay(zoom: zoom)
         }
@@ -301,13 +301,22 @@ struct ScreenshotEditorView: View {
             // never spill onto the margin; the live canvas must agree.
             cg.clip(to: CGRect(origin: .zero, size: model.imageSize))
         }
-        ScreenshotRenderer.drawAnnotations(model.annotations,
+        let ghost = model.shapeGhost
+        ScreenshotRenderer.drawAnnotations(model.annotations.filter { $0.id != ghost?.id },
                                            in: cg,
                                            pixelated: model.pixelated,
                                            imageSize: model.imageSize,
                                            scale: model.scale,
                                            annotationShadowsEnabled: model.annotationShadowsEnabled,
                                            skippingText: model.editingTextID)
+        if let ghost {
+            cg.saveGState()
+            cg.setAlpha(AnnotationInteractionFeedback.ghostOpacity)
+            ScreenshotRenderer.drawAnnotations([ghost], in: cg, pixelated: model.pixelated,
+                                               imageSize: model.imageSize, scale: model.scale,
+                                               annotationShadowsEnabled: false)
+            cg.restoreGState()
+        }
         drawTextSelection(cg)
         drawSelectionChrome(cg)
         drawCropChrome(cg, canvasSize: size, zoom: zoom)
@@ -342,6 +351,27 @@ struct ScreenshotEditorView: View {
     }
 
     // MARK: - Gestures
+
+    private func updateCursor(zoom: CGFloat) {
+        guard let point = hoverPoint, let window = controller.window,
+              NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == window.windowNumber
+        else { return }
+        if !CGRect(origin: .zero, size: model.imageSize).contains(point) {
+            NSCursor.arrow.set()
+        } else if model.editingTextID != nil || model.tool == .text {
+            NSCursor.iBeam.set()
+        } else if model.tool != .select, model.selectedAnnotationOwns(point) {
+            NSCursor.openHand.set()
+        } else if model.tool == .freehand {
+            AnnotationBrushCursor.cursor(style: model.creationStyle, scale: model.scale * zoom).set()
+        } else if model.tool != .select {
+            NSCursor.crosshair.set()
+        } else if model.wordIndex(at: point) != nil {
+            NSCursor.iBeam.set()
+        } else {
+            NSCursor.arrow.set()
+        }
+    }
 
     private func canvasGesture(zoom: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 0)
