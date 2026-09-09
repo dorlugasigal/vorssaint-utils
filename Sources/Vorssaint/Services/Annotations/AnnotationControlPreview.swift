@@ -12,6 +12,7 @@ enum AnnotationControlPreview {
     case head(AnnotationArrowhead, start: Bool)
     case headSize(CGFloat)
     case character(AnnotationStyle.Character)
+    case pressure(AnnotationStyle.Pressure)
 
     func draw(in context: CGContext, color: AnnotationColor) {
         // Fixed logical dimensions keep production arrowhead metrics legible
@@ -23,12 +24,19 @@ enum AnnotationControlPreview {
             rect: CGRect(x: 20, y: 20, width: 80, height: 80), style: style)
         element.roughSeed = 42
         switch self {
+        case .pressure(let pressure):
+            style.pressure = pressure
+            style.width = 22
+            element.tool = .freehand
+            element.points = [CGPoint(x: 14, y: 72), CGPoint(x: 37, y: 52), CGPoint(x: 60, y: 64),
+                              CGPoint(x: 83, y: 52), CGPoint(x: 106, y: 60)]
+            element.pressures = pressure == .simulated ? [0.9, 0.55, 0.15, 0.55, 0.9] : [0.15, 0.55, 1, 0.55, 0.15]
         case .fill(let fill):
             style.fill = fill
         case .character(let character):
             style.character = character
         case .pattern(let pattern):
-            style.width = 3
+            style.width = 6
             style.pattern = pattern
             element.tool = .line
             element.points = [CGPoint(x: 10, y: 60), CGPoint(x: 110, y: 60)]

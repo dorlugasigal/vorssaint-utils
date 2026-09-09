@@ -69,7 +69,7 @@ enum AnnotationRenderer {
         switch highlighter ? .solid : style.pattern {
         case .solid: break
         case .dashed: context.setLineDash(phase: 0, lengths: [6 * scaledStyle.width, 3 * scaledStyle.width])
-        case .dotted: context.setLineDash(phase: 0, lengths: [0, 2.5 * scaledStyle.width])
+        case .dotted: context.setLineDash(phase: 0, lengths: [0.01 * scaledStyle.width, 2.5 * scaledStyle.width])
         }
         let path = AnnotationGeometry.path(annotation, scale: scale)
         if annotation.tool == .rect || annotation.tool == .ellipse {

@@ -170,7 +170,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     var creationStyle: AnnotationStyle {
-        if let style = annotationStyleDefaults { return style }
+        if let style = annotationStyleDefaults { return AnnotationLinear.constrainedStyle(style, for: tool) }
         return AnnotationLinear.creationStyle(for: tool,
             base: AnnotationElement(tool: tool, color: color, stroke: stroke).resolvedStyle)
     }
@@ -185,9 +185,6 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
     var inspectorTool: ScreenshotSupport.Tool {
         annotations.first(where: { $0.id == selectedID })?.tool ?? tool
-    }
-    func canEditLinearPoints(_ insert: Bool) -> Bool {
-        AnnotationLinear.canEditPoints(insert, in: annotations, selection: selectedIDs)
     }
     var selectionIsLocked: Bool {
         !selectedIDs.isEmpty && annotations.filter { selectedIDs.contains($0.id) }.allSatisfy(\.isLocked)
@@ -228,7 +225,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     func setInspectorStyle(_ value: AnnotationStyle) {
-        let style = value.sanitized()
+        let style = AnnotationLinear.constrainedStyle(value.sanitized(), for: inspectorTool)
         let previous = inspectorStyle
         if selectedID != nil {
             let indexes = annotations.indices.filter {
@@ -238,7 +235,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             guard !indexes.isEmpty else { return }
             registerUndo()
             for index in indexes {
-                annotations[index].style = annotations[index].resolvedStyle.applyingChanges(from: previous, to: style)
+                let updated = annotations[index].resolvedStyle.applyingChanges(from: previous, to: style)
+                annotations[index].style = AnnotationLinear.constrainedStyle(updated, for: annotations[index].tool)
                 if !style.bindEndpoints { annotations[index].startBinding = nil; annotations[index].endBinding = nil }
                 if annotations[index].tool == .text {
                     annotations[index].rect = AnnotationRenderer.textBounds(annotations[index], scale: scale)
@@ -1015,10 +1013,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         guard smartDrawEnabled, let completed = annotations.first(where: { $0.id == draftID && $0.tool == .freehand }),
               !completed.resolvedStyle.isHighlighter else { return }
         smartDraw.finish(completed, duration: ProcessInfo.processInfo.systemUptime - strokeStartTime, scale: 1 / scale) { [weak self] converted in
-            guard let self, let index = self.annotations.firstIndex(where: {
-                $0.id == completed.id && $0.geometryRevision == completed.geometryRevision
-            }) else { return }
-            self.annotations[index] = converted
+            guard let self, AnnotationSmartDraw.applyResult(converted, replacing: completed,
+                                                           to: &self.annotations, tolerance: 14 * self.scale) else { return }
             self.refreshDirtyState()
         }
     }
@@ -1078,16 +1074,6 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         draftID = nil
         dragRegistered = false
         return true
-    }
-
-    func editLinearPoints(_ insert: Bool) {
-        var updated = annotations
-        for index in updated.indices where selectedIDs.contains(updated[index].id) {
-            AnnotationLinear.editPoints(insert, in: &updated[index])
-        }
-        guard updated != annotations else { return }
-        registerUndo()
-        annotations = updated
     }
 
     private func updateDraft(_ mutate: (inout AnnotationElement) -> Void) {

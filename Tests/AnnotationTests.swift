@@ -8,6 +8,7 @@ enum AnnotationTests {
         testControlPreviews(expect)
         testColorPalette(expect)
         testPathSampling(expect)
+        testStraightLineTool(expect)
         testToolbarExpansion(expect)
         testTextPlacement(expect)
         testToolShortcuts(expect)
@@ -25,6 +26,7 @@ enum AnnotationTests {
         testInteractionFeedback(expect)
         testRoughness(expect)
         testSmartDraw(expect)
+        testSmartDrawResults(expect)
         testPreferencesAndChannels(expect)
         let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
         for anchor in [CGRect(x: -1900, y: 1100, width: 50, height: 50),
@@ -91,10 +93,71 @@ enum AnnotationTests {
         expect(!AnnotationGeometry.hit(ellipse, at: CGPoint(x: 20, y: 20), scale: 1, imageSize: size),
                "ellipse hit geometry matches its visible path")
         for scale: CGFloat in [1, 2] {
-            let normalized = ScreenAnnotationSupport.normalized(
-                point: AnnotationPoint(x: 50 * scale, y: 70 * scale), in: (200 * scale, 200 * scale))
-            expect(normalized == AnnotationPoint(x: 0.25, y: 0.35), "coordinate adapter is scale independent")
+            let start = CGPoint(x: 50 * scale, y: 70 * scale), end = CGPoint(x: 150 * scale, y: 170 * scale)
+            var line = AnnotationLinearConstruction(element: AnnotationElement(tool: .line), at: start, viewScale: 1 / scale)
+            _ = line.release(at: end, constrained: false, viewScale: 1 / scale)
+            expect(line.completed?.points == [start, end], "production line input preserves coordinates at both scales")
         }
+    }
+
+    private static func testStraightLineTool(_ expect: (Bool, String) -> Void) {
+        var legacy = AnnotationStyle(color: .blue, width: 4)
+        legacy.curved = true
+        legacy.startHead = .triangle
+        legacy.endHead = .arrow
+        let start = CGPoint(x: 20, y: 30), end = CGPoint(x: 150, y: 90)
+        let element = AnnotationElement(tool: .line, points: [start, start], style: legacy)
+        var click = AnnotationLinearConstruction(element: element, at: start)
+        expect(!click.release(at: start, constrained: false, viewScale: 1), "line first click sets its start")
+        click.beginPointer(at: end, constrained: false, viewScale: 1)
+        expect(click.release(at: end, constrained: false, viewScale: 1), "line second click finishes without waypoints")
+        guard let line = click.completed else { expect(false, "straight line completes"); return }
+        expect(line.points == [start, end] && !line.resolvedStyle.curved, "line uses exactly two straight endpoints")
+        expect(line.resolvedStyle.startHead == .none && line.resolvedStyle.endHead == .none, "line cannot inherit arrowheads")
+        expect(AnnotationLinear.midpoints(line).isEmpty, "line does not advertise bend handles")
+        expect(AnnotationLinear.insertingPoint(in: line, segment: 0) == line, "line cannot acquire a bend by insertion")
+        click.add(CGPoint(x: 200, y: 140))
+        expect(click.completed?.points.count == 2, "line construction stays two-point even after repeated updates")
+        var drag = AnnotationLinearConstruction(element: element, at: start)
+        expect(drag.release(at: end, constrained: false, viewScale: 1), "ordinary line drag still finishes on release")
+        expect(AnnotationLinear.constrainedStyle(legacy, for: .arrow) == legacy, "arrow curves and heads remain configurable")
+        for language in AppLanguage.allCases {
+            expect(AnnotationPickerStrings.Field.allCases.allSatisfy {
+                !AnnotationPickerStrings.text($0, language).isEmpty
+            }, "all inspector section labels localized")
+        }
+    }
+
+    private static func testSmartDrawResults(_ expect: (Bool, String) -> Void) {
+        let target = AnnotationElement(tool: .rect, rect: CGRect(x: 100, y: 100, width: 80, height: 80))
+        let stroke = AnnotationElement(tool: .freehand, points: [CGPoint(x: 20, y: 140), CGPoint(x: 100, y: 140)])
+        var converted = stroke
+        converted.tool = .arrow
+        for grouped in [false, true] {
+            var changed = stroke
+            if grouped { changed.groupID = UUID() } else { changed.isLocked = true }
+            expect(changed.geometryRevision == stroke.geometryRevision, "lock/group does not invalidate geometry cache")
+            var elements = [target, changed]
+            expect(!AnnotationSmartDraw.applyResult(converted, replacing: stroke, to: &elements, tolerance: 14)
+                   && elements == [target, changed], "late recognition cannot overwrite lock/group commands")
+        }
+        var document = AnnotationDocument()
+        document.elements = [target]
+        document.begin()
+        document.elements.append(stroke)
+        document.commit()
+        expect(AnnotationSmartDraw.applyResult(converted, replacing: stroke, to: &document.state.elements, tolerance: 14),
+               "unchanged stroke accepts recognition")
+        expect(document.elements[1].endBinding?.targetID == target.id, "recognized arrow binds its nearby endpoint")
+        document.edit { $0.elements[0].rect.origin.x += 40 }
+        expect(document.elements[1].points.last == CGPoint(x: 140, y: 140), "recognized arrow follows target movement")
+        document.undo()
+        expect(document.elements[1].points.last == CGPoint(x: 100, y: 140), "target move undo restores recognized arrow")
+        document.undo()
+        expect(document.elements == [target], "one creation undo removes the recognized arrow")
+        document.redo()
+        expect(document.elements.count == 2 && document.elements[1].tool == .arrow
+               && document.elements[1].endBinding?.targetID == target.id, "redo restores recognized geometry and bindings")
     }
 
     private static func testTextPlacement(_ expect: (Bool, String) -> Void) {
@@ -442,11 +505,13 @@ enum AnnotationTests {
     private static func testLinear(_ expect: (Bool, String) -> Void) {
         var element = AnnotationElement(tool: .arrow, points: [CGPoint(x: 20, y: 80), CGPoint(x: 160, y: 80)])
         expect(AnnotationLinear.usesLegacyArrow(element), "default screenshot arrow retains legacy silhouette")
-        expect(!AnnotationLinear.canEditPoints(true, in: [element], selection: []),
-               "point editing is unavailable without a selected line")
-        expect(AnnotationLinear.canEditPoints(true, in: [element], selection: [element.id])
-            && !AnnotationLinear.canEditPoints(false, in: [element], selection: [element.id]),
-               "two-endpoint lines allow insertion but protect their minimum vertex count")
+        let midpoint = CGPoint(x: 90, y: 80)
+        expect(AnnotationEditGesture.owner(at: midpoint, in: [element], selection: [], scale: 1,
+                                          imageSize: CGSize(width: 200, height: 200)) == nil,
+               "direct point editing requires selection")
+        let inserted = AnnotationLinear.insertingPoint(in: element, segment: 0)
+        expect(inserted.points.count == 3 && AnnotationLinear.removingPoint(in: element, index: 1) == element,
+               "direct insertion works while removing an endpoint is rejected")
         var style = element.resolvedStyle
         for head in AnnotationArrowhead.allCases {
             for size: CGFloat in [1, 1.35, 1.75] {
@@ -512,6 +577,19 @@ enum AnnotationTests {
                     }
                 }
                 var clicks = AnnotationLinearConstruction(element: element, at: .zero, viewScale: scale)
+                if tool == .line {
+                    expect(!clicks.release(at: .zero, constrained: false, viewScale: scale), "line click starts at every zoom")
+                    let end = CGPoint(x: 100, y: 90)
+                    clicks.beginPointer(at: end, constrained: true, viewScale: scale)
+                    expect(clicks.release(at: end, constrained: true, viewScale: scale)
+                           && clicks.completed?.points == [.zero, AnnotationLinear.constrained(end, from: .zero)],
+                           "line second click completes the constrained straight segment")
+                    var returned = AnnotationLinearConstruction(element: element, at: .zero, viewScale: scale)
+                    returned.updatePreview(at: CGPoint(x: 5 / scale, y: 0), constrained: false, viewScale: scale)
+                    expect(returned.release(at: .zero, constrained: false, viewScale: scale) && returned.completed == nil,
+                           "zero-length line drag ends without creating a path")
+                    continue
+                }
                 expect(!clicks.release(at: .zero, constrained: false, viewScale: scale)
                        && clicks.isClickConstruction, "click automatically starts linear construction")
                 let second = CGPoint(x: 100, y: 90)
@@ -952,6 +1030,7 @@ enum AnnotationTests {
             [CGFloat(2), 4, 7].map { .width($0) },
             AnnotationStyle.Shape.allCases.map { .shape($0) },
             AnnotationStyle.Character.allCases.map { .character($0) },
+            AnnotationStyle.Pressure.allCases.map { .pressure($0) },
             [CGFloat(0.75), 1, 1.5].map { .headSize($0) },
             [.route(curved: false), .route(curved: true)]
         ]
@@ -1141,6 +1220,14 @@ enum AnnotationTests {
             stability.update(candidate)
             stability.update(candidate)
             expect(stability.commitCandidate(final: candidate) != nil, "consistent preview observations permit medium-confidence commit")
+            var final = candidate
+            final.element.rect.origin.x += 30
+            final.rotation += 0.2
+            expect(stability.commitCandidate(final: final) == final, "acceptance returns final geometry without unused preview interpolation")
+            stability.update(nil)
+            stability.update(nil)
+            stability.update(nil)
+            expect(stability.commitCandidate(final: candidate) == nil, "missing observations still release stability")
         }
         expect(SmartDrawRecognizer.preparedPoints(Array(repeating: circle, count: 50).flatMap { $0 },
             zoomScale: 1).count <= SmartDrawRecognitionBudget.maximumInputPointCount,
@@ -1207,8 +1294,8 @@ enum AnnotationTests {
             && abs(document.elements[0].rect.width - 170) < 0.001, "selection supports arbitrary rotation and scale")
         document.undo()
         expect(document.elements == [element], "continuous transforms remain one undo transaction")
-        let keys = AnnotationTool.allCases.map(\.shortcutKey)
-        expect(Set(keys).count == keys.count, "live tool shortcuts are unambiguous")
+        let keys = AnnotationToolShortcuts.entries.flatMap(\.keys)
+        expect(Set(keys).count == keys.count, "production tool shortcuts are unambiguous")
         expect(ScreenshotSupport.Tool.allCases.prefix(9) == [.select, .arrow, .pixelate, .crop, .text, .sticker, .rect, .highlight, .freehand],
                "screenshot tool order and numbered defaults remain unchanged")
         var redactStyle = primary

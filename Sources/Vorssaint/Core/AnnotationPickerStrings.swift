@@ -2,9 +2,31 @@
 // Copyright (C) 2026 Vorssaint
 
 enum AnnotationPickerStrings {
-    enum Field: Int { case colors, shades, hex, sample, stroke, heads, route, invalidHex, transparent }
+    enum Field: Int, CaseIterable {
+        case colors, shades, hex, sample, stroke, heads, route, invalidHex, transparent
+        case width, roughness, transform, eraserSize
+    }
 
-    static func text(_ field: Field, _ language: AppLanguage) -> String { labels(language)[field.rawValue] }
+    static func text(_ field: Field, _ language: AppLanguage) -> String {
+        field.rawValue < 9 ? labels(language)[field.rawValue] : layoutLabels(language)[field.rawValue - 9]
+    }
+
+    private static func layoutLabels(_ language: AppLanguage) -> [String] {
+        switch language {
+        case .enUS: return ["Width", "Roughness", "Transform", "Eraser size"]
+        case .ptBR: return ["Espessura", "Irregularidade", "Transformar", "Tamanho da borracha"]
+        case .tr: return ["Kalınlık", "Pürüzlülük", "Dönüştür", "Silgi boyutu"]
+        case .ru: return ["Толщина", "Неровность", "Преобразование", "Размер ластика"]
+        case .es: return ["Grosor", "Irregularidad", "Transformar", "Tamaño del borrador"]
+        case .de: return ["Breite", "Unregelmäßigkeit", "Transformieren", "Radierergröße"]
+        case .fr: return ["Épaisseur", "Irrégularité", "Transformer", "Taille de la gomme"]
+        case .it: return ["Spessore", "Irregolarità", "Trasforma", "Dimensione gomma"]
+        case .ja: return ["太さ", "ラフさ", "変形", "消しゴムのサイズ"]
+        case .ko: return ["두께", "거칠기", "변형", "지우개 크기"]
+        case .zhHans: return ["宽度", "粗糙度", "变换", "橡皮擦大小"]
+        case .zhTW, .zhHK: return ["寬度", "粗糙度", "變換", "橡皮擦大小"]
+        }
+    }
 
     static func labels(_ language: AppLanguage) -> [String] {
         switch language {

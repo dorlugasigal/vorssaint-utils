@@ -19,17 +19,9 @@ struct AnnotationColorSwatch: View {
         }
         .overlay(Color(red: color.red, green: color.green, blue: color.blue).opacity(color.alpha))
         .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.2),
-                              lineWidth: selected ? 3 : 1)
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if selected {
-                Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.white).padding(3).background(Color.accentColor, in: Circle()).padding(3)
-            }
-        }
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.15)))
+        .padding(3)
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected ? Color.primary : .clear, lineWidth: 2))
         .accessibilityHidden(true)
     }
 }
@@ -43,6 +35,7 @@ struct AnnotationColorPaletteView: View {
     @ObservedObject var state: AnnotationPaletteState
     var title: String
     var allowsAlpha: Bool
+    var suggestedColors: [AnnotationColor]
     var select: (AnnotationColor) -> Void
     var sample: () -> Void
     var done: () -> Void
@@ -52,10 +45,12 @@ struct AnnotationColorPaletteView: View {
     @State private var invalidHex = false
 
     init(state: AnnotationPaletteState, title: String, allowsAlpha: Bool,
+         suggestedColors: [AnnotationColor] = AnnotationColorPalette.colors,
          select: @escaping (AnnotationColor) -> Void, sample: @escaping () -> Void, done: @escaping () -> Void) {
         self.state = state
         self.title = title
         self.allowsAlpha = allowsAlpha
+        self.suggestedColors = suggestedColors
         self.select = select
         self.sample = sample
         self.done = done
@@ -71,8 +66,8 @@ struct AnnotationColorPaletteView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title).font(.headline)
             Text(text(.colors)).font(.subheadline).foregroundStyle(.secondary)
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(38), spacing: 8), count: 5), spacing: 8) {
-                ForEach(Array(AnnotationColorPalette.colors.enumerated()), id: \.offset) { _, color in
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(44), spacing: 8), count: 5), spacing: 8) {
+                ForEach(Array(suggestedColors.enumerated()), id: \.offset) { _, color in
                     if allowsAlpha || color.alpha == 1 {
                         swatch(color) { family = color; choose(color) }
                     }
@@ -118,7 +113,7 @@ struct AnnotationColorPaletteView: View {
                 }
             }
         }
-        .padding(16).frame(width: 254).background(.regularMaterial)
+        .padding(16).frame(width: 284).background(.regularMaterial)
         .onChange(of: state.color) { _, color in hex = AnnotationColorPalette.hex(color); invalidHex = false }
     }
 
@@ -132,7 +127,7 @@ struct AnnotationColorPaletteView: View {
         Button(action: action) {
             AnnotationColorSwatch(color: color,
                                   selected: AnnotationColorPalette.hex(color) == AnnotationColorPalette.hex(state.color))
-                .frame(width: 38, height: 38)
+                .frame(width: 44, height: 44)
         }
         .buttonStyle(.plain)
         .help(color.alpha == 0 ? text(.transparent) : "#\(AnnotationColorPalette.hex(color))")
@@ -158,6 +153,7 @@ struct AnnotationColorControl: NSViewRepresentable {
     var editingChanged: (Bool) -> Void
     var allowsAlpha = true
     var title = ""
+    var suggestedColors: [AnnotationColor] = AnnotationColorPalette.colors
 
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton(title: "", target: context.coordinator, action: #selector(Coordinator.toggle(_:)))
@@ -168,8 +164,9 @@ struct AnnotationColorControl: NSViewRepresentable {
 
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.control = self
+        button.isEnabled = context.environment.isEnabled
         let color = color.clamped()
-        button.image = NSImage(size: CGSize(width: 32, height: 28), flipped: false) { bounds in
+        button.image = NSImage(size: CGSize(width: 36, height: 36), flipped: false) { bounds in
             let rect = bounds.insetBy(dx: 2, dy: 2)
             let path = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
             NSColor.controlBackgroundColor.setFill()
@@ -182,7 +179,7 @@ struct AnnotationColorControl: NSViewRepresentable {
             let ink: NSColor = color.alpha < 0.5 ? .labelColor : luminance > 0.5 ? .black : .white
             NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [ink]))?
-                .draw(in: CGRect(x: 19, y: 5, width: 8, height: 6))
+                .draw(in: CGRect(x: 23, y: 7, width: 8, height: 6))
             return true
         }
         let label = title.isEmpty ? FeatureStrings.screenshot(L10n.shared.language).colorLabel : title
@@ -236,7 +233,7 @@ struct AnnotationColorControl: NSViewRepresentable {
             popover.delegate = self
             let title = control.title.isEmpty ? FeatureStrings.screenshot(L10n.shared.language).colorLabel : control.title
             popover.contentViewController = NSHostingController(rootView: AnnotationColorPaletteView(
-                state: state, title: title, allowsAlpha: control.allowsAlpha,
+                state: state, title: title, allowsAlpha: control.allowsAlpha, suggestedColors: control.suggestedColors,
                 select: { [weak self] in self?.select($0) },
                 sample: { [weak self] in self?.sample() },
                 done: { [weak self] in self?.close() }))

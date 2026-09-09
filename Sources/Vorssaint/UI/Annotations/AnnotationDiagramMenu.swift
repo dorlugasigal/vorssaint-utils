@@ -15,17 +15,19 @@ struct AnnotationDiagramMenu: View {
     var body: some View {
         Button { isPresented.toggle() } label: {
             VStack(spacing: 2) {
-                Image(systemName: "square.on.circle").frame(height: 21)
+                Image(systemName: "square.on.circle")
+                    .font(.system(size: toolbarStyle ? AnnotationUIMetrics.iconSize : 16)).frame(height: 22)
                 if toolbarStyle {
                     Image(systemName: "chevron.down").font(.system(size: 9))
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: toolbarStyle ? 34 : 27, height: toolbarStyle ? 36 : 28)
+            .frame(width: toolbarStyle ? AnnotationUIMetrics.toolSide : 33,
+                   height: toolbarStyle ? AnnotationUIMetrics.toolSide : 32)
         }
         .buttonStyle(.borderless)
         .background(selected != nil || isRedacting || isPresented ? Color.accentColor.opacity(0.22) : .clear,
-                    in: RoundedRectangle(cornerRadius: 7))
+                    in: RoundedRectangle(cornerRadius: 10))
         .help(AnnotationSessionStrings.customShapes(localization.language))
         .accessibilityLabel(AnnotationSessionStrings.customShapes(localization.language))
         .accessibilityAddTraits(selected != nil || isRedacting ? .isSelected : [])

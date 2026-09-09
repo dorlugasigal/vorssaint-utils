@@ -1,29 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
-import AppKit
 import SwiftUI
-
-struct AnnotationDisclosureStyle: DisclosureGroupStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button { configuration.isExpanded.toggle() } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold)).accessibilityHidden(true)
-                    configuration.label
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if configuration.isExpanded { configuration.content }
-        }
-        .transaction { $0.animation = nil }
-    }
-}
 
 struct AnnotationPreviewTile: View {
     var preview: AnnotationControlPreview
@@ -41,14 +19,14 @@ struct AnnotationPreviewTile: View {
                 cg.restoreGState()
             }
         }
-        .frame(width: 28, height: 28)
-        .frame(width: 38, height: 38)
-        .background(isSelected ? Color.accentColor.opacity(0.22) : Color.primary.opacity(isHovered ? 0.10 : 0.04),
-                    in: RoundedRectangle(cornerRadius: 7))
+        .frame(width: 26, height: 26)
+        .frame(width: AnnotationUIMetrics.tileSide, height: AnnotationUIMetrics.tileSide)
+        .background(isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(isHovered ? 0.09 : 0.025),
+                    in: RoundedRectangle(cornerRadius: 9))
         .overlay {
-            RoundedRectangle(cornerRadius: 7)
+            RoundedRectangle(cornerRadius: 9)
                 .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.14),
-                              lineWidth: isSelected ? 1.5 : 1)
+                              lineWidth: isSelected ? 2 : 1)
         }
         .onHover { isHovered = $0 }
         .accessibilityHidden(true)
@@ -76,99 +54,43 @@ struct AnnotationVisualChoices<Value: Hashable>: View {
     }
 }
 
-struct AnnotationArrowOptions: View {
-    @Binding var style: AnnotationStyle
-    @ObservedObject private var localization = L10n.shared
-    @State private var isPresented = false
-
-    var body: some View {
-        Button { isPresented.toggle() } label: {
-            AnnotationPreviewTile(preview: .route(curved: style.curved), isSelected: isPresented)
-        }
-        .buttonStyle(.plain)
-        .help(AnnotationPickerStrings.text(.heads, localization.language))
-        .accessibilityLabel(AnnotationPickerStrings.text(.heads, localization.language))
-        .popover(isPresented: $isPresented) {
-            AnnotationArrowOptionsContent(style: $style)
-        }
-    }
-}
-
-struct AnnotationArrowOptionsContent: View {
-    @Binding var style: AnnotationStyle
-    @ObservedObject private var localization = L10n.shared
-
-    var body: some View {
-        let labels = AnnotationLinearStrings.labels(localization.language)
-        VStack(alignment: .leading, spacing: 14) {
-            Text(AnnotationPickerStrings.text(.heads, localization.language)).font(.headline)
-            HStack(spacing: 14) {
-                AnnotationArrowheadChoice(selection: $style.startHead, isStart: true, label: labels[16])
-                AnnotationArrowheadChoice(selection: $style.endHead, isStart: false, label: labels[17])
-            }
-            Text(AnnotationPickerStrings.text(.route, localization.language)).font(.headline)
-            AnnotationVisualChoices(values: [false, true], selection: $style.curved,
-                                    label: { $0 ? labels[14] : FeatureStrings.screenshot(localization.language).toolLine },
-                                    preview: { .route(curved: $0) })
-        }
-        .padding(16).background(.regularMaterial)
-    }
-}
-
 struct AnnotationArrowheadChoice: View {
     @Binding var selection: AnnotationArrowhead
     var isStart: Bool
     var label: String
     @ObservedObject private var localization = L10n.shared
     @State private var isPresented = false
-    @State private var showsAdvanced = false
-
-    private let common: [AnnotationArrowhead] = [.none, .arrow, .triangle, .triangleOutline]
 
     var body: some View {
         Button { isPresented.toggle() } label: {
-            HStack(spacing: 3) {
-                AnnotationPreviewTile(preview: .head(selection, start: isStart))
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+            HStack(spacing: 4) {
+                AnnotationPreviewTile(preview: .head(selection, start: isStart), isSelected: isPresented)
+                Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
             }
-
         }
         .buttonStyle(.plain)
         .help("\(label): \(AnnotationLinearStrings.head(selection, localization.language))")
         .accessibilityLabel(label)
         .accessibilityValue(AnnotationLinearStrings.head(selection, localization.language))
-        .onChange(of: isPresented) { _, presented in
-            if !presented { showsAdvanced = false }
-        }
         .popover(isPresented: $isPresented) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(label).font(.caption).foregroundStyle(.secondary)
-                headGrid(common)
-                DisclosureGroup(AnnotationSessionStrings.moreOptions(localization.language), isExpanded: $showsAdvanced) {
-                    headGrid(AnnotationArrowhead.allCases.filter { $0 != .legacy && !common.contains($0) })
-                        .padding(.top, 8)
+            VStack(alignment: .leading, spacing: 12) {
+                Text(label).font(.headline)
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(44), spacing: 8), count: 4), spacing: 8) {
+                    ForEach(AnnotationArrowhead.allCases, id: \.rawValue) { head in
+                        Button {
+                            selection = head
+                            isPresented = false
+                        } label: {
+                            AnnotationPreviewTile(preview: .head(head, start: isStart), isSelected: selection == head)
+                        }
+                        .buttonStyle(.plain)
+                        .help(AnnotationLinearStrings.head(head, localization.language))
+                        .accessibilityLabel(AnnotationLinearStrings.head(head, localization.language))
+                        .accessibilityAddTraits(selection == head ? .isSelected : [])
                     }
-                    .disclosureGroupStyle(AnnotationDisclosureStyle())
-                    .font(.caption)
-            }
-            .padding(12)
-        }
-    }
-
-    private func headGrid(_ heads: [AnnotationArrowhead]) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(38), spacing: 6), count: 4), spacing: 6) {
-            ForEach(heads, id: \.rawValue) { head in
-                Button {
-                    selection = head
-                    isPresented = false
-                } label: {
-                    AnnotationPreviewTile(preview: .head(head, start: isStart), isSelected: selection == head)
                 }
-                .buttonStyle(.plain)
-                .help(AnnotationLinearStrings.head(head, localization.language))
-                .accessibilityLabel(AnnotationLinearStrings.head(head, localization.language))
-                .accessibilityAddTraits(selection == head ? .isSelected : [])
             }
+            .padding(16)
         }
     }
 }

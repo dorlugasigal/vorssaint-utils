@@ -180,6 +180,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     fileprivate func cancelGesture() {
         smartDraw.cancel()
+        lastTapStroke = nil
+        strokeStartDocument = nil
         eraserSweep.cancel()
         document.cancel()
         editingTextID = nil
@@ -375,6 +377,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         if toolbar.frame != frame { toolbar.setFrame(frame, display: true) }
     }
 
+    var toolbarAvailableSize: CGSize {
+        sessionScreen?.visibleFrame.size ?? CGSize(width: 648, height: 900)
+    }
+
     func scheduleToolbarLayout() {
         DispatchQueue.main.async { [weak self] in self?.fitToolbar() }
     }
@@ -500,10 +506,6 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     var inspectorTool: ScreenshotSupport.Tool {
         strokes.first(where: { $0.id == selectedID })?.tool ?? tool.elementTool ?? .select
     }
-    func canEditLinearPoints(_ insert: Bool) -> Bool {
-        AnnotationLinear.canEditPoints(insert, in: strokes, selection: selectedIDs)
-    }
-
     private func persistToolStyles() {
         AnnotationStylePreferences.save(Dictionary(uniqueKeysWithValues: toolStyles.map { ($0.key.rawValue, $0.value) }),
                                         defaults: defaults, key: DefaultsKey.screenAnnotationStyles)
@@ -536,13 +538,14 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     func setInspectorStyle(_ value: AnnotationStyle) {
-        let style = value.sanitized()
+        let style = AnnotationLinear.constrainedStyle(value.sanitized(), for: inspectorTool)
         let previous = inspectorStyle
         let continuous = document.history.isEditing
         if !continuous { document.begin() }
         if selectedID != nil {
             for index in strokes.indices where selectedIDs.contains(strokes[index].id) && !strokes[index].isLocked {
-                strokes[index].style = strokes[index].resolvedStyle.applyingChanges(from: previous, to: style)
+                let updated = strokes[index].resolvedStyle.applyingChanges(from: previous, to: style)
+                strokes[index].style = AnnotationLinear.constrainedStyle(updated, for: strokes[index].tool)
                 if !style.bindEndpoints { strokes[index].startBinding = nil; strokes[index].endBinding = nil }
                 if strokes[index].tool == .text { strokes[index].rect = AnnotationRenderer.textBounds(strokes[index], scale: 1) }
             }
@@ -582,7 +585,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     // MARK: - Stroke entry points (called from AnnotationDrawingView)
 
-    private var lastTapStroke: AnnotationElement?
+    private var lastTapStroke: (element: AnnotationElement, before: AnnotationDocument)?
+    private var strokeStartDocument: AnnotationDocument?
 
     fileprivate func beginStroke(at p: NSPoint, bounds: CGRect, extendingSelection: Bool = false, clickCount: Int = 1) {
         AnnotationColorPanels.closeCurrent()
@@ -593,7 +597,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             return
         }
         if clickCount == 2, !extendingSelection, tool != .eraser {
-            if let lastTapStroke, strokes.last == lastTapStroke { undo() }
+            if let lastTapStroke, strokes.last == lastTapStroke.element {
+                smartDraw.cancel()
+                document = lastTapStroke.before
+            }
             lastTapStroke = nil
             let target = AnnotationTextPlacement.target(at: p, elements: strokes, scale: 1,
                                                         imageSize: bounds.size, selection: selectedIDs)
@@ -666,6 +673,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             return
         }
         guard let elementTool = tool.elementTool else { return }
+        strokeStartDocument = tool.isFreehand ? document : nil
         document.begin()
         selectedID = nil
         var element = AnnotationElement(tool: elementTool, rect: CGRect(origin: p, size: .zero),
@@ -688,7 +696,9 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     fileprivate var creationStyle: AnnotationStyle { creationStyle(for: tool) }
 
     private func creationStyle(for requested: AnnotationTool) -> AnnotationStyle {
-        if let style = toolStyles[requested] { return style }
+        if let style = toolStyles[requested] {
+            return AnnotationLinear.constrainedStyle(style, for: requested.elementTool ?? .select)
+        }
         return AnnotationStyle(color: requested == .highlighter ? AnnotationBrush.neonColors[0] : color,
                                width: width, opacity: requested == .highlighter ? 0.35 : 1,
                                smooth: false, textSize: max(14, width * 3), mediumTextWeight: true,
@@ -818,9 +828,12 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         if let createdShape { selectedID = createdShape.id }
         AnnotationBindings.finishEdit(selectedIDs.union(Set(draftID.map { [$0] } ?? [])), elements: &strokes, tolerance: 14)
         let completedStroke = strokes.first { $0.id == draftID && $0.tool == .freehand }
-        lastTapStroke = completedStroke.flatMap { stroke in
-            stroke.points.allSatisfy { hypot($0.x - dragStart.x, $0.y - dragStart.y) < 1 } ? stroke : nil
+        lastTapStroke = nil
+        if let stroke = completedStroke, let before = strokeStartDocument,
+           stroke.points.allSatisfy({ hypot($0.x - dragStart.x, $0.y - dragStart.y) < 1 }) {
+            lastTapStroke = (stroke, before)
         }
+        strokeStartDocument = nil
         document.commit()
         draftID = nil
         editGesture = nil
@@ -829,10 +842,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         if createdShape != nil { setTool(.select) } else { refreshDocument() }
         if smartDrawEnabled, let completedStroke, !completedStroke.resolvedStyle.isHighlighter {
             smartDraw.finish(completedStroke, duration: ProcessInfo.processInfo.systemUptime - strokeStartTime, scale: 1) { [weak self] converted in
-                guard let self, let index = self.strokes.firstIndex(where: {
-                    $0.id == completedStroke.id && $0.geometryRevision == completedStroke.geometryRevision
-                }) else { return }
-                self.strokes[index] = converted
+                guard let self, AnnotationSmartDraw.applyResult(converted, replacing: completedStroke,
+                                                               to: &self.strokes, tolerance: 14) else { return }
                 self.selectedID = converted.id
                 self.refreshDocument()
             }
@@ -864,22 +875,30 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     func cancelLinearConstruction() { cancelGesture() }
 
-    func editLinearPoints(_ insert: Bool) {
-        document.edit { state in
-            for index in state.elements.indices where state.selection.contains(state.elements[index].id) {
-                AnnotationLinear.editPoints(insert, in: &state.elements[index])
-            }
-        }
-        refreshDocument()
+    // MARK: - Carbon shortcut
+
+    var configuredShortcut: GlobalShortcut {
+        defaults.string(forKey: DefaultsKey.screenAnnotationShortcut).flatMap(GlobalShortcut.init(storageValue:))
+            ?? .screenAnnotationDefault
     }
 
-    // MARK: - Carbon shortcut
+    var activationShortcutHint: String? {
+        guard defaults.bool(forKey: DefaultsKey.screenAnnotationShortcutEnabled), !shortcutRegistrationFailed else { return nil }
+        return configuredShortcut.displayString
+    }
+
+    var escapeHint: String? {
+        guard isDrawingActive else { return nil }
+        let cancelling = linearConstruction != nil || document.history.isEditing || editingTextID != nil
+        let action = cancelling ? FeatureStrings.screenshot(L10n.shared.language).cancel
+            : AnnotationSessionStrings.mode(false, L10n.shared.language)
+        return "Esc: \(action)"
+    }
 
     func syncShortcut() {
         let on = AppFeature.screenAnnotation.isAvailable
             && defaults.bool(forKey: DefaultsKey.screenAnnotationShortcutEnabled)
-        let shortcut = GlobalShortcut.saved(for: DefaultsKey.screenAnnotationShortcut,
-                                            fallback: .screenAnnotationDefault)
+        let shortcut = configuredShortcut
         hotkey.onPress = { [weak self] in self?.toggleOverlay() }
         shortcutRegistrationFailed = !hotkey.sync(enabled: on, shortcut: shortcut)
     }
@@ -889,6 +908,14 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         shortcutRegistrationFailed = false
     }
 
+    static func makeUIReviewService(defaults: UserDefaults, choice: AnnotationToolChoice,
+                                   drawing: Bool = true) -> ScreenAnnotationService {
+        let service = ScreenAnnotationService(defaults: defaults)
+        service.setToolChoice(choice)
+        service.isDrawingActive = drawing
+        return service
+    }
+
     static func runDataSelfTest(defaults: UserDefaults) -> [String] {
         let service = ScreenAnnotationService(defaults: defaults)
         var failures: [String] = []
@@ -896,6 +923,26 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             if !condition { failures.append("annotation live host: \(label)") }
         }
         let bounds = CGRect(x: 0, y: 0, width: 500, height: 400)
+        let hints = ScreenAnnotationService(defaults: defaults)
+        defaults.set(false, forKey: DefaultsKey.screenAnnotationShortcutEnabled)
+        expect(hints.activationShortcutHint == nil, "disabled activation shortcut is not advertised")
+        let customShortcut = GlobalShortcut(keyCode: 103, modifiers: [.control, .option, .command])
+        defaults.set(customShortcut.storageValue, forKey: DefaultsKey.screenAnnotationShortcut)
+        defaults.set(true, forKey: DefaultsKey.screenAnnotationShortcutEnabled)
+        expect(hints.activationShortcutHint == customShortcut.displayString
+               && hints.configuredShortcut == customShortcut, "hint and registration use the same customized binding")
+        expect(hints.escapeHint == nil, "Interact does not advertise Escape as a drawing action")
+        hints.isDrawingActive = true
+        expect(hints.escapeHint == "Esc: \(AnnotationSessionStrings.mode(false, L10n.shared.language))",
+               "Draw advertises Escape to Interact")
+        hints.setTool(.arrow)
+        hints.beginStroke(at: CGPoint(x: 20, y: 20), bounds: bounds)
+        expect(hints.escapeHint == "Esc: \(FeatureStrings.screenshot(L10n.shared.language).cancel)",
+               "pending construction advertises cancellation before Interact")
+        hints.cancelGesture()
+        hints.shortcutRegistrationFailed = true
+        expect(hints.activationShortcutHint == nil, "failed shortcut registration is not advertised")
+        hints.closeSession()
         for choice in AnnotationToolShortcuts.entries.map(\.choice) where
             choice.tool == .rectangle || choice.tool == .ellipse || choice.tool == .line || choice.tool == .arrow {
             let shapes = ScreenAnnotationService(defaults: defaults)
@@ -928,8 +975,24 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         expect(labels.editingTextID != nil && labels.strokes.count == 1 && labels.strokes[0].tool == .text,
                "pen double click replaces the first tap with text, without a stray dot")
         labels.commitText("Note")
+        let redoNote = labels.strokes
         labels.undo()
         expect(labels.strokes.isEmpty, "live double click text is one undo step")
+        labels.setTool(.pen)
+        labels.beginStroke(at: CGPoint(x: 200, y: 150), bounds: bounds)
+        labels.finishStroke(at: CGPoint(x: 200, y: 150), bounds: bounds)
+        labels.beginStroke(at: CGPoint(x: 200, y: 150), bounds: bounds, clickCount: 2)
+        labels.cancelGesture()
+        expect(labels.strokes.isEmpty && labels.canRedo, "cancelled double-click text preserves pre-tap redo history")
+        labels.redo()
+        expect(labels.strokes == redoNote, "redo restores the prior action, not the discarded dot")
+        labels.closeSession()
+        labels.setTool(.pen)
+        labels.beginStroke(at: CGPoint(x: 200, y: 150), bounds: bounds)
+        labels.finishStroke(at: CGPoint(x: 200, y: 150), bounds: bounds)
+        labels.beginStroke(at: CGPoint(x: 200, y: 150), bounds: bounds, clickCount: 2)
+        labels.cancelGesture()
+        expect(labels.strokes.isEmpty && !labels.canRedo, "cancelled text does not invent a redo entry for the first tap")
         labels.closeSession()
         labels.setTool(.pen)
         labels.beginStroke(at: CGPoint(x: 200, y: 150), bounds: bounds)

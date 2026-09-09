@@ -14,15 +14,24 @@ enum AnnotationArrowhead: Int, Codable, CaseIterable {
 }
 
 enum AnnotationLinear {
+    static func constrainedStyle(_ value: AnnotationStyle, for tool: ScreenshotSupport.Tool) -> AnnotationStyle {
+        guard tool == .line else { return value }
+        var style = value
+        style.curved = false
+        style.startHead = .none
+        style.endHead = .none
+        return style
+    }
+
     static func creationStyle(for tool: ScreenshotSupport.Tool, base: AnnotationStyle) -> AnnotationStyle {
         var style = base
         style.curved = tool == .arrow
         if tool == .arrow { style.endHead = .arrow }
-        return style
+        return constrainedStyle(style, for: tool)
     }
 
     static func midpoints(_ element: AnnotationElement) -> [CGPoint] {
-        guard (element.tool == .arrow || element.tool == .line), element.points.count >= 2 else { return [] }
+        guard element.tool == .arrow, element.points.count >= 2 else { return [] }
         let controls = controls(element)
         return (0..<(element.points.count - 1)).map { segment in
             let start = element.points[segment], end = element.points[segment + 1]
@@ -37,7 +46,7 @@ enum AnnotationLinear {
     /// De Casteljau subdivision inserts a draggable knot without changing the
     /// existing cubic or replacing the user's other custom control handles.
     static func insertingPoint(in element: AnnotationElement, segment: Int) -> AnnotationElement {
-        guard !element.isLocked, (element.tool == .arrow || element.tool == .line),
+        guard !element.isLocked, element.tool == .arrow,
               segment >= 0, segment + 1 < element.points.count else { return element }
         var result = element
         let start = element.points[segment], end = element.points[segment + 1]
@@ -92,23 +101,6 @@ enum AnnotationLinear {
 
     private static let cacheLock = NSLock()
     private static var headCache: [UUID: (revision: UUID, scale: CGFloat, paths: [(CGPath, Bool)])] = [:]
-
-    static func canEditPoints(_ insert: Bool, in elements: [AnnotationElement], selection: Set<UUID>) -> Bool {
-        elements.contains {
-            selection.contains($0.id) && !$0.isLocked && ($0.tool == .arrow || $0.tool == .line)
-                && $0.points.count >= (insert ? 2 : 3)
-        }
-    }
-    static func editPoints(_ insert: Bool, in element: inout AnnotationElement) {
-        guard !element.isLocked, element.tool == .arrow || element.tool == .line,
-              element.points.count >= 2 else { return }
-        if insert {
-            let index = element.points.count - 1
-            let a = element.points[index - 1], b = element.points[index]
-            element.points.insert(CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2), at: index)
-        } else if element.points.count > 2 { element.points.remove(at: element.points.count - 2) }
-        element.controls = []
-    }
 
     static func usesLegacyArrow(_ element: AnnotationElement) -> Bool {
         element.tool == .arrow && element.points.count == 2 && !element.resolvedStyle.curved
@@ -327,6 +319,7 @@ struct AnnotationLinearConstruction {
 
     init(element: AnnotationElement, at point: CGPoint, viewScale: CGFloat = 1) {
         self.element = element
+        self.element.style = AnnotationLinear.constrainedStyle(element.resolvedStyle, for: element.tool)
         vertices = [point]
         preview = point
         rawPreview = point
@@ -365,6 +358,14 @@ struct AnnotationLinearConstruction {
         let finishHandleHit = hitsFinishHandle(point, viewScale: viewScale)
         updatePreview(at: point, constrained: constrained, viewScale: viewScale)
         pointerIsDown = false
+        if element.tool == .line {
+            if exceededDragThreshold || isClickConstruction {
+                add(preview)
+                return true
+            }
+            isClickConstruction = true
+            return false
+        }
         if !isClickConstruction {
             if exceededDragThreshold {
                 add(preview)
@@ -395,7 +396,8 @@ struct AnnotationLinearConstruction {
 
     mutating func add(_ point: CGPoint) {
         if let last = vertices.last, hypot(last.x - point.x, last.y - point.y) * viewScale > 0.5 {
-            vertices.append(point)
+            if element.tool == .line, vertices.count == 2 { vertices[1] = point }
+            else { vertices.append(point) }
         }
         preview = point
     }

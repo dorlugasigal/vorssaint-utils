@@ -3,72 +3,12 @@
 
 import AppKit
 import IOKit.pwr_mgt
-import SwiftUI
 
 /// Quick subsystem check, run with `Vorssaint --selftest`.
 /// Core capabilities fail the test; hardware-dependent readings only warn.
 enum SelfTest {
     static func runAnnotationUIAndExit() -> Never {
-        _ = NSApplication.shared
-        print("ANNOTATION UI: constructing toolbar")
-        let examples: [(String, NSViewController)] = [
-            ("toolbar", ScreenAnnotationToolbar.makeController(service: ScreenAnnotationService.shared)),
-            ("color-palette", NSHostingController(rootView: AnnotationColorPaletteView(
-                state: AnnotationPaletteState(color: .blue), title: "Stroke color", allowsAlpha: true,
-                select: { _ in }, sample: {}, done: {}))),
-            ("arrow-options", NSHostingController(rootView: AnnotationArrowOptionsContent(
-                style: .constant(AnnotationStyle(color: .blue, width: 4, curved: true)))))
-        ]
-        for (name, host) in examples {
-            let view = host.view
-            view.layoutSubtreeIfNeeded()
-            let size = view.fittingSize
-            print("ANNOTATION UI: \(name) fitting size \(size)")
-            guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
-                print("ANNOTATION UI FAILED: invalid \(name) size")
-                exit(1)
-            }
-            let window = NSPanel(contentRect: CGRect(origin: .zero, size: size),
-                                 styleMask: [.borderless, .nonactivatingPanel],
-                                 backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.contentViewController = host
-            view.setFrameSize(size)
-            view.layoutSubtreeIfNeeded()
-            guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
-                print("ANNOTATION UI FAILED: no offscreen bitmap")
-                exit(1)
-            }
-            view.cacheDisplay(in: view.bounds, to: bitmap)
-            if let directory = ProcessInfo.processInfo.environment["VORSSAINT_ANNOTATION_UI_OUTPUT"] {
-                guard let data = bitmap.representation(using: .png, properties: [:]) else {
-                    print("ANNOTATION UI FAILED: cannot encode \(name)")
-                    exit(1)
-                }
-                do {
-                    try data.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
-                } catch {
-                    print("ANNOTATION UI FAILED: \(error)")
-                    exit(1)
-                }
-            }
-            window.contentViewController = nil
-            window.close()
-        }
-        var textStyle = AnnotationStyle(color: .blue, width: 4)
-        textStyle.textAlignment = .center
-        let text = AnnotationElement(tool: .text, text: "Centered", style: textStyle)
-        let editor = AnnotationNativeTextEditor(element: text, scale: 1)
-        editor.frame = CGRect(x: 0, y: 0, width: 300, height: 160)
-        editor.layoutSubtreeIfNeeded()
-        guard let textView = editor.documentView as? NSTextView,
-              textView.alignment == .center, textView.textContainerInset.height > 0,
-              abs((textView.textContainer?.containerSize.width ?? 0) + 4 - editor.contentSize.width) < 1 else {
-            print("ANNOTATION UI FAILED: centered native text container")
-            exit(1)
-        }
-        print("ANNOTATION UI OK")
-        exit(0)
+        AnnotationUIReviewSelfTest.runAndExit()
     }
 
     static func runAndExit() -> Never {

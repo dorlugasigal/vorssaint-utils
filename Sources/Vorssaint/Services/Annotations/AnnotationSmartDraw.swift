@@ -5,6 +5,18 @@ import Foundation
 import CoreGraphics
 
 final class AnnotationSmartDraw {
+    @discardableResult
+    static func applyResult(_ converted: AnnotationElement, replacing original: AnnotationElement,
+                            to elements: inout [AnnotationElement], tolerance: CGFloat) -> Bool {
+        guard converted.id == original.id,
+              let index = elements.firstIndex(where: {
+                  $0 == original && $0.geometryRevision == original.geometryRevision
+              }) else { return false }
+        elements[index] = converted
+        AnnotationBindings.finishEdit([converted.id], elements: &elements, tolerance: tolerance)
+        return true
+    }
+
     private var generation = SmartDrawRecognitionGenerationState()
     private var stability = SmartDrawStabilityTracker()
     private var work: DispatchWorkItem?

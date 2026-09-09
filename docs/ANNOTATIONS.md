@@ -42,36 +42,51 @@ capture tools remain active for repeated use. Choose a drawing tool again to
 create another shape.
 
 Move the toolbar using its dedicated drag handle. The rest of the toolbar,
-including the full-width More options button, does not drag the window.
-Expansion stays within the owning display. More options stays open across
-tool changes until explicitly collapsed. The inspector edits selected,
+including the preference controls, does not drag the window.
+Preferences are always open in compact labeled rows, with no More options
+disclosure or separate card per property. The toolbar retains its 648-point
+width and fits its height to the active tool; short screens scroll preferences
+without hiding the tool and action rows. The inspector edits selected,
 unlocked objects, or the current tool's defaults when nothing is selected.
-Stroke and fill swatches open native popovers with a color grid, shades,
+Only Stroke and Fill pickers are shown where applicable; there is no duplicate
+external palette. Their native popovers contain suggested colors, shades,
 RGB/RGBA hex input, opacity and an eyedropper. Each picker session is one undo
-transaction. The shared system color panel is not modified.
+transaction. Highlighter suggestions use the neon palette. A short opacity
+slider sits beside the main color controls. The shared system color panel is
+not modified.
 
-The square background button cycles transparent, white and black. Transparent
+The background button cycles transparent, white and black. Transparent
 is the default for each new session.
+Footer hints reflect Escape's current cancel/Interact action and the user's
+configured activation shortcut for Draw or Close. Disabled or failed global
+shortcut registrations are not advertised.
 
 ## Rich editing
 
 The inspector exposes diamond as a Rectangle variant, solid/hatch/crosshatch
 fills, dashes, rounded corners, custom RGBA, opacity, widths, font families,
-font size, bold text, alignment, pressure, smoothing and stroke character.
+font size, bold text, alignment, visual pressure choices and stroke character.
+Width, stroke pattern and roughness have distinct labels. The smoothing
+checkbox is removed; existing stroke-processing defaults remain compatible.
 The stroke-character picker offers Architect (clean) and Cartoonist (rough).
 The retired middle Artist preset remains decodable for existing styles;
 saved creation defaults migrate to Architect. Redact is available in the
 live toolbar's custom-shape menu and remains a separate screenshot tool.
 It is always opaque, including when a mixed selection receives a translucent color.
 
-The arrow-options popover groups start/end heads with straight and curved
-routes. Click to start a path, click to add vertices, and finish with Return,
+Arrowheads, arrow type and head size are inline sections, not an outer
+popover. Individual head selectors show the full catalog. Click to start an
+arrow, click to add vertices, and finish with Return,
 Done, double-click or the last-point finish handle. Drag/release creates a
 quick path. Escape/Cancel discards construction. Drag midpoint handles to
 insert vertices; double-click an interior vertex to remove it.
 Selected vertices and cubic controls can be dragged. An arrow element remains
 Arrow when both heads are None. Both ends support the full arrowhead catalog,
 including outlined/filled forms and relationship cardinality markers.
+The regular Line tool creates only a straight, two-endpoint segment: drag
+and release, or click its start and end. It does not expose arrowheads, curved
+routes or bend insertion. Older stored line styles remain readable; new
+creation and style edits enforce the plain-line settings.
 
 Nearby endpoint binding is enabled by default for new connectors.
 Endpoints near a shape attach to its stable identity and follow translations,
@@ -106,6 +121,9 @@ rectangles, diamonds and arrows using the source fitting and confidence policy.
 Recognition runs on a serial background queue with bounded input, cancellation
 and generation checks. Unsupported or insufficiently confident strokes remain
 freehand. Recognition does not add a second undo step.
+Late results cannot overwrite intervening lock/group/style changes.
+Recognized connectors run the same endpoint-binding finalization as manually
+created connectors.
 
 ## Screenshot compatibility
 
@@ -143,7 +161,7 @@ and uses isolated preference suites without opening application windows.
 | Display/session/input ownership | `Services/ScreenAnnotation/ScreenAnnotationService.swift` | Display geometry checks in `Tests/MetricsTests.swift`; live data-host selftest |
 | Shared model, rendering and export | `Services/Annotations/AnnotationElement.swift`, `AnnotationRenderer.swift`; `Services/QuickTools/ScreenshotRenderer.swift` | Default screenshot pixel equivalence at 1x/2x in `Tests/AnnotationTests.swift`; host export selftest |
 | Transactions, selection and direct arrow editing | `Services/Annotations/AnnotationDocument.swift`; both host services | `testEditing`; live and screenshot data-host selftests |
-| Inspector, colors and scoped preferences | `UI/Annotations/AnnotationInspector.swift`, `AnnotationColorControl.swift`; `Services/Annotations/AnnotationStylePreferences.swift`, `AnnotationColorPalette.swift` | `testPreferencesAndChannels`, `testColorPalette`; placement and finite-value tests |
+| Inspector, colors and scoped preferences | `UI/Annotations/AnnotationInspector.swift`, `AnnotationColorControl.swift`, `AnnotationInspectorLayout.swift`; shared style preferences and palette | Color/preference tests; all-tool light/dark native layout review |
 | Groups, locks, layers and transforms | `Services/Annotations/AnnotationSelection.swift`; `UI/Annotations/AnnotationSelectionMenu.swift`, `AnnotationTransformControls.swift` | `testSelection`; locked-object host selftests |
 | Shapes, fills, dashes and roundness | Shared geometry/renderer and inspector | `testShapeStyles`; default-renderer pixel regressions |
 | Curves, points, heads and construction | `Services/Annotations/AnnotationLinear.swift` | `testLinear`; screenshot control-editing and construction selftests |
@@ -151,12 +169,14 @@ and uses isolated preference suites without opening application windows.
 | Native text and typography | `UI/Annotations/AnnotationTextEditor.swift`; `Services/Annotations/AnnotationTextPlacement.swift`; shared renderer | `testText`, `testTextPlacement`; centered text/whitespace/undo host selftests |
 | Pressure, smoothing and eraser sweeps | `Services/Annotations/AnnotationFreehand.swift`, `AnnotationPathSampling.swift` | `testFreehand`; long-marker and eraser host selftests |
 | Deterministic rough geometry | `Services/Annotations/AnnotationRoughness.swift` | `testRoughness`, including scale and seed checks |
-| Smart Draw | `Services/Annotations/SmartDrawRecognizer.swift`, `AnnotationSmartDraw.swift` | `testSmartDraw`, including every shape kind and stale-token policy |
+| Smart Draw | `Services/Annotations/SmartDrawRecognizer.swift`, `AnnotationSmartDraw.swift` | `testSmartDraw`, `testSmartDrawResults`, including late lock/group results and binding undo/redo |
 | Localization/discovery | `Core/Annotation*Strings.swift`, `Core/FeatureStrings.swift`; settings directory | All-current-language catalog coverage and existing settings tests |
 | Screenshot-only workflows | Existing screenshot services and UI | Existing screenshot suite plus crop/image-history/export host selftests |
 
 The existing commands are `./build.sh --test`, `./build.sh` and
-`./build/Vorssaint --selftest`. The unit suite prints comparisons against the
+`./build/Vorssaint --selftest`. `--selftest-annotation-ui` exercises every tool
+in both light and dark appearances, custom/disabled shortcut hints and a
+constrained-height viewport without opening windows. The unit suite prints comparisons against the
 uncached shared geometry for long strokes and a 200-element scene, and checks
 that unchanged scene paths are not rebuilt.
 

@@ -13,116 +13,127 @@ enum ScreenAnnotationToolbar {
 private struct AnnotationToolbarView: View {
     @ObservedObject var service: ScreenAnnotationService
     @ObservedObject private var localization = L10n.shared
-    @State private var transformsPresented = false
-    @State private var inspectorExpanded = false
 
-    private var presetColors: [AnnotationColor] {
-        service.inspectorStyle.isHighlighter ? AnnotationBrush.neonColors
-            : [.red, .orange, .yellow, .green, .blue, .purple, .black, .white]
-    }
     private var strings: ScreenAnnotationStrings { FeatureStrings.annotation(localization.language) }
+    private var width: CGFloat { min(AnnotationUIMetrics.toolbarWidth, service.toolbarAvailableSize.width) }
+    private var hasSelection: Bool { !service.selectedIDs.isEmpty }
+    private var showsInspector: Bool { hasSelection || service.tool != .select }
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 4) {
-                ForEach(AnnotationToolShortcuts.primaryEntries, id: \.choice) { entry in
-                    Button { service.setToolChoice(entry.choice) } label: {
-                        VStack(spacing: 2) {
-                            Image(systemName: toolSymbol(entry.choice)).frame(height: 21)
-                            Text(entry.keys.first ?? " ").font(.system(size: 9))
-                                .foregroundStyle(.secondary)
+            ScrollView(.horizontal) {
+                HStack(spacing: 2) {
+                    ForEach(AnnotationToolShortcuts.primaryEntries, id: \.choice) { entry in
+                        Button { service.setToolChoice(entry.choice) } label: {
+                            VStack(spacing: 2) {
+                                Image(systemName: toolSymbol(entry.choice))
+                                    .font(.system(size: AnnotationUIMetrics.iconSize)).frame(height: 22)
+                                Text(entry.keys.first ?? " ").font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(width: AnnotationUIMetrics.toolSide, height: AnnotationUIMetrics.toolSide)
                         }
-                        .frame(width: 34, height: 36)
+                        .buttonStyle(.plain)
+                        .background(service.toolChoice == entry.choice ? Color.accentColor.opacity(0.20) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 10))
+                        .help(entry.keys.isEmpty ? toolTitle(entry.choice)
+                              : "\(toolTitle(entry.choice)) (\(entry.keys.joined(separator: ", ")))")
+                        .accessibilityLabel(toolTitle(entry.choice))
+                        .accessibilityAddTraits(service.toolChoice == entry.choice ? .isSelected : [])
                     }
-                    .buttonStyle(.borderless)
-                    .background(service.toolChoice == entry.choice ? Color.accentColor.opacity(0.22) : .clear,
-                                in: RoundedRectangle(cornerRadius: 7))
-                    .help(entry.keys.isEmpty ? toolTitle(entry.choice)
-                          : "\(toolTitle(entry.choice)) (\(entry.keys.joined(separator: ", ")))")
-                    .accessibilityLabel(toolTitle(entry.choice))
-                    .accessibilityAddTraits(service.toolChoice == entry.choice ? .isSelected : [])
+                    AnnotationDiagramMenu(
+                        selected: service.tool == .rectangle && service.inspectorStyle.shape.isDiagram
+                            ? service.inspectorStyle.shape : nil,
+                        toolbarStyle: true, isRedacting: service.tool == .redact,
+                        redact: { service.setToolChoice(.tool(.redact)) },
+                        select: { service.setToolChoice(.shape($0)) })
                 }
-                AnnotationDiagramMenu(
-                    selected: service.tool == .rectangle && service.inspectorStyle.shape.isDiagram
-                        ? service.inspectorStyle.shape : nil,
-                    toolbarStyle: true, isRedacting: service.tool == .redact,
-                    redact: { service.setToolChoice(.tool(.redact)) },
-                    select: { service.setToolChoice(.shape($0)) })
+                .frame(minWidth: max(0, width - 24))
             }
+            .frame(height: AnnotationUIMetrics.toolSide)
             Divider()
-            HStack(spacing: 9) {
-                ForEach(Array(presetColors.enumerated()), id: \.offset) { _, color in
-                    Button { service.setColor(color) } label: {
-                        AnnotationColorSwatch(color: color, selected: service.inspectorStyle.color == color)
-                            .frame(width: 24, height: 24)
+            if showsInspector {
+                AnnotationInspectorViewport(
+                    maximumHeight: max(40, service.toolbarAvailableSize.height - AnnotationUIMetrics.chromeHeight
+                                       - (service.hasLinearConstruction ? 36 : 0))) {
+                    VStack(spacing: 8) {
+                        AnnotationInspector(style: Binding(get: { service.inspectorStyle }, set: service.setInspectorStyle),
+                                            editingChanged: service.styleEditingChanged, tool: service.inspectorTool,
+                                            smartDraw: $service.smartDrawEnabled,
+                                            erasing: service.tool == .eraser)
+                            .disabled(service.selectionIsLocked)
+                        if hasSelection {
+                            AnnotationInspectorSection(
+                                title: AnnotationPickerStrings.text(.transform, localization.language),
+                                symbol: "arrow.up.left.and.arrow.down.right") {
+                                AnnotationTransformControls(
+                                    rotation: Binding(get: { service.selectionRotation }, set: service.rotateSelection),
+                                    resize: service.resizeSelection, editingChanged: service.styleEditingChanged)
+                            }.disabled(service.selectionIsLocked)
+                        }
                     }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("#\(AnnotationColorPalette.hex(color))")
                 }
-                AnnotationColorControl(color: Binding(get: { service.inspectorStyle.color }, set: service.setColor),
-                                       editingChanged: service.styleEditingChanged,
-                                       allowsAlpha: service.inspectorTool != .redact,
-                                       title: AnnotationPickerStrings.text(.stroke, localization.language))
-                    .frame(width: 32, height: 28)
-                    .help(FeatureStrings.screenshot(localization.language).colorLabel)
-                Divider().frame(height: 20)
-                Button { service.undo() } label: { Image(systemName: "arrow.uturn.backward") }
-                    .help(strings.undo)
-                    .disabled(!service.canUndo)
-                Button { service.redo() } label: { Image(systemName: "arrow.uturn.forward") }
-                    .help(localization.s.menuRedo)
-                    .disabled(!service.canRedo)
-                Divider().frame(height: 20)
-                Button { service.clearAll() } label: { Image(systemName: "trash") }
-                    .help(strings.clear)
             }
-            AnnotationInspector(style: Binding(get: { service.inspectorStyle }, set: service.setInspectorStyle),
-                                expanded: $inspectorExpanded,
-                                editingChanged: service.styleEditingChanged, tool: service.inspectorTool,
-                                editPoints: service.editLinearPoints, smartDraw: $service.smartDrawEnabled,
-                                showsStrokeColor: false, layoutChanged: service.scheduleToolbarLayout)
-                .disabled(service.selectionIsLocked)
-            HStack {
-                if service.hasLinearConstruction {
+            if service.hasLinearConstruction {
+                HStack {
                     Button(FeatureStrings.screenshot(localization.language).done) { service.finishLinearConstruction() }
                     Button(FeatureStrings.screenshot(localization.language).cancel, action: service.cancelLinearConstruction)
+                    Spacer()
                 }
-                Image(systemName: "line.3.horizontal")
-                    .foregroundStyle(.secondary)
-                    .frame(width: 22, height: 22)
-                    .overlay(NativeWindowDragHandle())
-                    .help(AnnotationSessionStrings.moveToolbar(localization.language))
-                    .accessibilityLabel(AnnotationSessionStrings.moveToolbar(localization.language))
-                AnnotationSelectionMenu(hasSelection: !service.selectedIDs.isEmpty, perform: service.performSelectionAction)
-                if !service.selectedIDs.isEmpty {
-                    Button { transformsPresented.toggle() } label: {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    }
-                    .help(AnnotationSessionStrings.moreOptions(localization.language))
-                    .disabled(service.selectionIsLocked)
-                    .popover(isPresented: $transformsPresented) {
-                        AnnotationTransformControls(
-                            rotation: Binding(get: { service.selectionRotation }, set: service.rotateSelection),
-                            resize: service.resizeSelection, editingChanged: service.styleEditingChanged)
-                            .padding(12)
-                    }
-                }
-                Button { service.cycleBackground() } label: { Image(systemName: "square.fill") }
-                    .help(FeatureStrings.screenshot(localization.language).backdropLabel)
-                Button { service.toggleDrawing() } label: {
-                    Label(AnnotationSessionStrings.mode(service.isDrawingActive, localization.language),
-                          systemImage: service.isDrawingActive ? "pencil.tip" : "cursorarrow")
-                }
-
-                Spacer()
-                Button { service.hideOverlay() } label: { Image(systemName: "xmark") }
-                    .help(strings.exit)
             }
+            Divider()
+            footer
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(12)
+        .frame(width: width)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal").foregroundStyle(.secondary)
+                .frame(width: 24, height: 32).overlay(NativeWindowDragHandle())
+                .help(AnnotationSessionStrings.moveToolbar(localization.language))
+                .accessibilityLabel(AnnotationSessionStrings.moveToolbar(localization.language))
+            AnnotationSelectionMenu(hasSelection: hasSelection, perform: service.performSelectionAction)
+            Button { service.cycleBackground() } label: {
+                Image(systemName: "rectangle.on.rectangle").frame(width: 28, height: 32)
+            }
+            .help(FeatureStrings.screenshot(localization.language).backdropLabel)
+            .accessibilityLabel(FeatureStrings.screenshot(localization.language).backdropLabel)
+            Button { service.toggleDrawing() } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Label(AnnotationSessionStrings.mode(service.isDrawingActive, localization.language),
+                          systemImage: service.isDrawingActive ? "pencil.tip" : "cursorarrow")
+                    if let hint = service.escapeHint {
+                        Text(hint).font(.system(size: 11)).foregroundStyle(.secondary)
+                    } else if let shortcut = service.activationShortcutHint {
+                        Text("\(shortcut): \(AnnotationSessionStrings.mode(true, localization.language))")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }.frame(height: 32)
+            }
+            Spacer(minLength: 0)
+            footerButton("arrow.uturn.backward", title: strings.undo, enabled: service.canUndo, action: service.undo)
+            footerButton("arrow.uturn.forward", title: localization.s.menuRedo, enabled: service.canRedo, action: service.redo)
+            footerButton("trash", title: strings.clear, enabled: !service.strokes.isEmpty, action: service.clearAll)
+            Button(action: service.hideOverlay) {
+                VStack(spacing: 1) {
+                    Image(systemName: "xmark")
+                    if service.isDrawingActive, let shortcut = service.activationShortcutHint {
+                        Text("\(shortcut): \(strings.exit)").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }.frame(minWidth: 32, minHeight: 32)
+            }.help(strings.exit).accessibilityLabel(strings.exit)
+        }
+        .font(.system(size: 13))
+    }
+
+    private func footerButton(_ symbol: String, title: String, enabled: Bool = true,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: symbol).frame(width: 32, height: 32) }
+            .help(title).accessibilityLabel(title).disabled(!enabled)
     }
 
     private func toolTitle(_ choice: AnnotationToolChoice) -> String {
@@ -154,7 +165,7 @@ private struct AnnotationToolbarView: View {
         case .ellipse: return "circle"
         case .text: return "textformat"
         case .eraser: return "eraser"
-        case .redact: return "rectangle.fill"
+        case .redact: return "eye.slash"
         }
     }
 }

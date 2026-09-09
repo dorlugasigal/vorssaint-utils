@@ -19,7 +19,6 @@ struct ScreenshotEditorView: View {
     @State private var backdropPopoverShown = false
     @State private var hoveredTool: ScreenshotSupport.Tool?
     @State private var toolOptionsShown = false
-    @State private var inspectorExpanded = false
     @State private var sharing = false
     @State private var sharedRecord: ScreenshotShareRecord?
     @AppStorage(DefaultsKey.screenshotToolOrder) private var toolOrderRaw =
@@ -47,13 +46,12 @@ struct ScreenshotEditorView: View {
                 if model.inspectorTool != .crop && model.inspectorTool != .pixelate
                     && model.inspectorTool != .sticker && model.inspectorTool != .counter
                     && model.inspectorTool != .select {
-                    AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
-                                        expanded: $inspectorExpanded,
-                                        editingChanged: model.styleEditingChanged, tool: model.inspectorTool,
-                                        editPoints: model.editLinearPoints, smartDraw: $model.smartDrawEnabled,
-                                        allowsHighlighter: true)
-                        .disabled(model.selectionIsLocked)
-                        .padding(.horizontal, 12)
+                    AnnotationInspectorViewport(maximumHeight: 400) {
+                        AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
+                                            editingChanged: model.styleEditingChanged, tool: model.inspectorTool,
+                                            smartDraw: $model.smartDrawEnabled, allowsHighlighter: true)
+                            .disabled(model.selectionIsLocked)
+                    }.padding(.horizontal, 12)
                 }
                 if !model.selectedIDs.isEmpty {
                     AnnotationTransformControls(rotation: Binding(get: { model.selectionRotation }, set: model.rotateSelection),
@@ -912,18 +910,7 @@ struct ScreenshotEditorView: View {
     // MARK: - Bottom row
 
     private var showsColorControls: Bool {
-        switch model.tool {
-        case .arrow, .line, .rect, .ellipse, .freehand, .highlight, .text, .counter, .redact:
-            return true
-        case .select:
-            guard let selectedID = model.selectedID,
-                  let selected = model.annotations.first(where: { $0.id == selectedID })
-            else { return false }
-            return selected.tool != .sticker
-                && selected.tool != .pixelate
-        case .sticker, .pixelate, .crop:
-            return false
-        }
+        model.inspectorTool == .counter
     }
 
     /// Depth only means something once a shape is picked, and only when there

@@ -14,16 +14,6 @@ enum SmartDrawShapeKind: Equatable {
     case diamond
     case arrow
 
-    var displayName: String {
-        switch self {
-        case .circle: "Circle"
-        case .ellipse: "Ellipse"
-        case .square: "Square"
-        case .rectangle: "Rectangle"
-        case .diamond: "Diamond"
-        case .arrow: "Arrow"
-        }
-    }
 }
 
 struct SmartDrawCandidate: Equatable {
@@ -42,8 +32,7 @@ struct SmartDrawStabilityTracker {
     static let requiredConsistentUpdates = 2
     static let requiredSwitchUpdates = 2
 
-    private(set) var previewCandidate: SmartDrawCandidate?
-    private(set) var provisionalCandidate: SmartDrawCandidate?
+    private var previewCandidate: SmartDrawCandidate?
     private var pendingCandidate: SmartDrawCandidate?
     private var pendingCount = 0
     private var previewObservationCount = 0
@@ -51,7 +40,6 @@ struct SmartDrawStabilityTracker {
 
     mutating func reset() {
         previewCandidate = nil
-        provisionalCandidate = nil
         pendingCandidate = nil
         pendingCount = 0
         previewObservationCount = 0
@@ -65,7 +53,6 @@ struct SmartDrawStabilityTracker {
             pendingCount = 0
             if missingCount >= 3 {
                 previewCandidate = nil
-                provisionalCandidate = nil
                 previewObservationCount = 0
             }
             return
@@ -81,13 +68,12 @@ struct SmartDrawStabilityTracker {
                     }
                     return
                 }
-                self.previewCandidate = Self.blend(
+                self.previewCandidate = Self.blendConfidence(
                     previewCandidate,
                     candidate,
                     fraction: candidate.confidence >= Self.immediatePreviewThreshold ? 0.46 : 0.32
                 )
                 previewObservationCount += 1
-                provisionalCandidate = nil
                 pendingCandidate = nil
                 pendingCount = 0
                 return
@@ -104,25 +90,18 @@ struct SmartDrawStabilityTracker {
         }
 
         guard candidate.confidence >= Self.previewThreshold else {
-            provisionalCandidate = nil
             pendingCandidate = nil
             pendingCount = 0
             return
         }
         if candidate.confidence >= Self.immediatePreviewThreshold {
             previewCandidate = candidate
-            provisionalCandidate = nil
             previewObservationCount = 1
             pendingCandidate = nil
             pendingCount = 0
         } else {
-            provisionalCandidate = candidate
             registerPending(candidate, requiredCount: Self.requiredConsistentUpdates)
         }
-    }
-
-    var displayCandidate: SmartDrawCandidate? {
-        previewCandidate ?? provisionalCandidate
     }
 
     func commitCandidate(final candidate: SmartDrawCandidate?) -> SmartDrawCandidate? {
@@ -143,7 +122,7 @@ struct SmartDrawStabilityTracker {
         requiredCount: Int
     ) {
         if let pendingCandidate, pendingCandidate.kind == candidate.kind {
-            self.pendingCandidate = Self.blend(pendingCandidate, candidate, fraction: 0.5)
+            self.pendingCandidate = Self.blendConfidence(pendingCandidate, candidate, fraction: 0.5)
             pendingCount += 1
         } else {
             pendingCandidate = candidate
@@ -151,70 +130,22 @@ struct SmartDrawStabilityTracker {
         }
         if pendingCount >= requiredCount, let pendingCandidate {
             previewCandidate = pendingCandidate
-            provisionalCandidate = nil
             previewObservationCount = pendingCount
             self.pendingCandidate = nil
             pendingCount = 0
         }
     }
 
-    private static func blend(
+    private static func blendConfidence(
         _ current: SmartDrawCandidate,
         _ update: SmartDrawCandidate,
         fraction: CGFloat
     ) -> SmartDrawCandidate {
         guard current.kind == update.kind else { return update }
         let amount = min(1, max(0, fraction))
-        var element = update.element
-        if !current.element.points.isEmpty,
-           current.element.points.count == update.element.points.count {
-            element.points = zip(current.element.points, update.element.points).map {
-                interpolate($0.0, $0.1, amount)
-            }
-        } else {
-            let origin = interpolate(current.element.rect.origin, update.element.rect.origin, amount)
-            let end = interpolate(CGPoint(x: current.element.rect.maxX, y: current.element.rect.maxY),
-                                  CGPoint(x: update.element.rect.maxX, y: update.element.rect.maxY), amount)
-            element.rect = ScreenshotSupport.selectionRect(from: origin, to: end)
-        }
-        return SmartDrawCandidate(
-            kind: update.kind,
-            element: element,
-            rotation: blendAngle(
-                current.rotation,
-                update.rotation,
-                fraction: amount,
-                period: .pi
-            ),
-            confidence: current.confidence
-                + (update.confidence - current.confidence) * amount
-        )
-    }
-
-    private static func interpolate(
-        _ start: CGPoint,
-        _ end: CGPoint,
-        _ fraction: CGFloat
-    ) -> CGPoint {
-        CGPoint(
-            x: start.x + (end.x - start.x) * fraction,
-            y: start.y + (end.y - start.y) * fraction
-        )
-    }
-
-    private static func blendAngle(
-        _ start: CGFloat,
-        _ end: CGFloat,
-        fraction: CGFloat,
-        period: CGFloat
-    ) -> CGFloat {
-        var delta = (end - start).truncatingRemainder(dividingBy: period)
-        if delta > period / 2 {
-            delta -= period
-        } else if delta < -period / 2 {
-            delta += period
-        }
-        return start + delta * fraction
+        var result = update
+        result.confidence = current.confidence + (update.confidence - current.confidence) * amount
+        return result
     }
 }
 

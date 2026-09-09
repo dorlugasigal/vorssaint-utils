@@ -30,16 +30,6 @@ struct AnnotationDisplayGeometry: Equatable {
     }
 }
 
-struct AnnotationPoint: Codable, Equatable {
-    let x: Double
-    let y: Double
-
-    init(x: Double, y: Double) {
-        self.x = x
-        self.y = y
-    }
-}
-
 enum AnnotationTool: String, Codable, CaseIterable {
     case select
     case pen
@@ -60,21 +50,6 @@ enum AnnotationTool: String, Codable, CaseIterable {
     }
 
     var isFreehand: Bool { self == .pen || self == .highlighter }
-
-    var shortcutKey: String {
-        switch self {
-        case .select: return "v"
-        case .pen: return "p"
-        case .highlighter: return "h"
-        case .arrow: return "a"
-        case .line: return "l"
-        case .rectangle: return "r"
-        case .ellipse: return "o"
-        case .text: return "t"
-        case .redact: return "x"
-        case .eraser: return "e"
-        }
-    }
 
     var elementTool: ScreenshotSupport.Tool? {
         switch self {
@@ -120,11 +95,6 @@ enum ScreenAnnotationSupport {
 
     static func activationClosesOverlay(hasOverlay: Bool, isDrawing: Bool) -> Bool {
         hasOverlay && isDrawing
-    }
-
-    static func normalized(point: AnnotationPoint, in size: (width: Double, height: Double)) -> AnnotationPoint {
-        AnnotationPoint(x: (point.x / max(size.width, 1)).clamped(to: 0...1),
-                        y: (point.y / max(size.height, 1)).clamped(to: 0...1))
     }
 
 }
