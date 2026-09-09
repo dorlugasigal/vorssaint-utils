@@ -189,7 +189,8 @@ enum AnnotationTests {
             imageSize: bounds.size) == .locked, "double click respects locked shapes")
         var style = AnnotationStyle(color: .blue, width: 4)
         style.textAlignment = .center
-        var text = AnnotationElement(tool: .text, rect: CGRect(x: 100, y: 80, width: 0, height: 0), style: style)
+        var text = AnnotationElement(tool: .text, rect: CGRect(x: 100, y: 80, width: 0, height: 0),
+                                     style: style, centersTextVertically: true)
         for value in ["", "Label", "A longer\nmultiline label"] {
             text.text = value
             text.rect = AnnotationRenderer.textBounds(text, scale: 1)
@@ -200,6 +201,23 @@ enum AnnotationTests {
         expect(frame.midX == 100 && frame.midY == 80 && bounds.contains(frame), "native editor stays centered near edges")
         expect(AnnotationTextPlacement.target(at: CGPoint(x: 42, y: 80), elements: [shape, text], scale: 1,
             imageSize: bounds.size) == .text(text.id), "double click on shape reopens its center label")
+        var duplicated = AnnotationDocument.Snapshot(elements: [text], selection: [text.id])
+        AnnotationSelection.apply(.duplicate, to: &duplicated)
+        expect(duplicated.elements.last?.centersTextVertically == true, "duplicating a label preserves its vertical anchor")
+        for alignment in AnnotationStyle.Alignment.allCases {
+            var aligned = text
+            aligned.centersTextVertically = false
+            aligned.style?.textAlignment = alignment
+            let before = aligned.rect
+            aligned.text += "\nAdditional line"
+            aligned.rect = AnnotationRenderer.textBounds(aligned, scale: 1)
+            expect(aligned.rect.minY == before.minY, "paragraph alignment does not move ordinary text vertically")
+            switch alignment {
+            case .left: expect(aligned.rect.minX == before.minX, "left alignment preserves leading anchor")
+            case .center: expect(aligned.rect.midX == before.midX, "center alignment preserves horizontal center")
+            case .right: expect(aligned.rect.maxX == before.maxX, "right alignment preserves trailing anchor")
+            }
+        }
         for tool in ScreenshotSupport.Tool.allCases {
             expect(AnnotationElement(tool: tool).selectsAfterCreation == [.rect, .ellipse, .arrow, .line].contains(tool),
                    "auto-select affects geometric drawing tools only: \(tool)")

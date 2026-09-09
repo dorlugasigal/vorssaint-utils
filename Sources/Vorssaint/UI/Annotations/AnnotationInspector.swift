@@ -223,7 +223,7 @@ struct AnnotationInspector: View {
             let names = AnnotationDiagramStrings.labels(localization.language)
             AnnotationInspectorSection(title: AnnotationDiagramStrings.title(.grid, localization.language),
                                        symbol: "grid") {
-                HStack(spacing: 12) {
+                HStack(spacing: 8) {
                     Stepper("\(names[5]): \(style.gridRows)", value: $style.gridRows, in: 1...12)
                     Stepper("\(names[6]): \(style.gridColumns)", value: $style.gridColumns, in: 1...12)
                 }
@@ -286,9 +286,15 @@ struct AnnotationInspector: View {
                                 Text(names[family.rawValue + 1]).tag(family)
                             }
 
-                        }.labelsHidden().frame(width: 180).accessibilityLabel(names[0])
-                        Toggle(isOn: $style.boldText) { Image(systemName: "bold") }
-                            .toggleStyle(.button).help(names[6]).accessibilityLabel(names[6])
+                        }.labelsHidden().frame(width: 150).accessibilityLabel(names[0])
+                        Button { style.boldText.toggle() } label: {
+                            Image(systemName: "bold").font(.system(size: 16, weight: .semibold))
+                                .frame(width: 30, height: 30)
+                                .background(style.boldText ? Color.accentColor.opacity(0.2) : Color.primary.opacity(0.05),
+                                            in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain).help(names[6]).accessibilityLabel(names[6])
+                        .accessibilityAddTraits(style.boldText ? .isSelected : [])
                     }
                 }
             }

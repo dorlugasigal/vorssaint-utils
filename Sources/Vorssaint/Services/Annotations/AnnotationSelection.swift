@@ -60,7 +60,7 @@ enum AnnotationSelection {
                     rect: original.rect.offsetBy(dx: 16, dy: 16),
                     points: original.points.map { CGPoint(x: $0.x + 16, y: $0.y + 16) },
                     text: original.text, color: original.color, stroke: original.stroke,
-                    number: original.number, style: original.style)
+                    number: original.number, style: original.style, centersTextVertically: original.centersTextVertically)
                 copy.rotation = original.rotation
                 copy.controls = original.controls.map { CGPoint(x: $0.x + 16, y: $0.y + 16) }
                 copy.startBinding = original.startBinding?.remapped(replacements)

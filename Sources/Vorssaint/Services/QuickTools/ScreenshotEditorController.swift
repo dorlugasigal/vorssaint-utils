@@ -19,6 +19,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
     @Published var editingTextID: UUID?
     @Published var tool: ScreenshotSupport.Tool {
+        willSet {
+            if newValue != tool, let id = editingTextID,
+               let element = annotations.first(where: { $0.id == id }) {
+                commitText(id, text: element.text)
+            }
+        }
         didSet {
             if tool != oldValue, linearConstruction != nil { cancelLinearConstruction() }
             defaults.set(tool.rawValue, forKey: DefaultsKey.screenshotLastTool)
@@ -940,7 +946,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             var style = creationStyle
             if centered { style.textAlignment = .center }
             var annotation = AnnotationElement(tool: .text, rect: CGRect(origin: anchor, size: .zero),
-                                               color: color, stroke: stroke, style: style)
+                                               color: color, stroke: stroke, style: style, centersTextVertically: centered)
             annotation.rect = AnnotationRenderer.textBounds(annotation, scale: scale)
             annotations.append(annotation)
             selectedID = annotation.id
@@ -984,10 +990,10 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             selectedID = nil
             sticker = ScreenshotSupport.StickerID.sanitized(hit.text)
         }
+        tool = .select
         selectedID = hitID
         editingTextID = hit.tool == .text && !hit.isLocked ? hitID : nil
         clearTextSelection()
-        tool = .select
         return true
     }
 
@@ -1099,6 +1105,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// the same way deleting one already does.
     func moveSelected(_ move: ScreenshotSupport.LayerMove) {
         performSelectionAction(move == .forward ? .forward : .backward)
+    }
+
+    func updateTextDraft(_ id: UUID, text: String) {
+        guard editingTextID == id, let index = annotations.firstIndex(where: { $0.id == id && !$0.isLocked }) else { return }
+        annotations[index].text = text
+        annotations[index].rect = AnnotationRenderer.textBounds(annotations[index], scale: scale)
     }
 
     func commitText(_ id: UUID, text: String) {

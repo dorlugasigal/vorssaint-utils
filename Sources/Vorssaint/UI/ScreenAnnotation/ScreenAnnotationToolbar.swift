@@ -93,8 +93,7 @@ private struct AnnotationToolbarView: View {
             }
             .help(FeatureStrings.screenshot(localization.language).backdropLabel)
             .accessibilityLabel(FeatureStrings.screenshot(localization.language).backdropLabel)
-            VStack(alignment: .leading, spacing: 2) {
-                Picker("", selection: Binding(get: { service.isDrawingActive }, set: {
+            Picker("", selection: Binding(get: { service.isDrawingActive }, set: {
                     if $0 != service.isDrawingActive { service.toggleDrawing() }
                 })) {
                     Label(AnnotationSessionStrings.mode(true, localization.language), systemImage: "pencil.tip").tag(true)
@@ -102,22 +101,22 @@ private struct AnnotationToolbarView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 176)
                 .accessibilityLabel("\(AnnotationSessionStrings.mode(true, localization.language)) / \(AnnotationSessionStrings.mode(false, localization.language))")
-                if let hint = service.escapeHint {
-                    Text(hint).font(.system(size: 11)).foregroundStyle(.secondary)
-                } else if let shortcut = service.activationShortcutHint {
-                    Text("\(shortcut): \(AnnotationSessionStrings.mode(true, localization.language))")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                }
+                .frame(height: 32)
+            if let hint = service.escapeHint {
+                Text(hint).font(.system(size: 11)).foregroundStyle(.secondary)
+            } else if let shortcut = service.activationShortcutHint {
+                Text("\(shortcut): \(AnnotationSessionStrings.mode(true, localization.language))")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             footerButton("arrow.uturn.backward", title: strings.undo, enabled: service.canUndo, action: service.undo)
             footerButton("arrow.uturn.forward", title: localization.s.menuRedo, enabled: service.canRedo, action: service.redo)
             footerButton("trash", title: strings.clear, enabled: !service.strokes.isEmpty, action: service.clearAll)
             Button(action: service.hideOverlay) {
-                VStack(spacing: 1) {
+                HStack(spacing: 4) {
                     Image(systemName: "xmark")
                     if service.isDrawingActive, let shortcut = service.activationShortcutHint {
-                        Text("\(shortcut): \(strings.exit)").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text(shortcut).font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 }.frame(minWidth: 32, minHeight: 32)
             }.help(strings.exit).accessibilityLabel(strings.exit)

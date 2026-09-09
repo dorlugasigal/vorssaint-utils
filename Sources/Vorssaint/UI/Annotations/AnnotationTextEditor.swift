@@ -23,13 +23,20 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
     }
 
     private let editor = TextView()
-    private var centersText = false
+    private var alignment: AnnotationStyle.Alignment?
+    private var centersVertically = false
     var changed: ((String) -> Void)?
     var committed: ((String) -> Void)?
     var cancelled: (() -> Void)?
     var text: String {
         get { editor.string }
-        set { if editor.string != newValue && !editor.hasMarkedText() { editor.string = newValue } }
+        set {
+            if editor.string != newValue && !editor.hasMarkedText() {
+                editor.string = newValue
+                alignment = nil
+                sizeTextContainer()
+            }
+        }
     }
 
     init(element: AnnotationElement, scale: CGFloat) {
@@ -53,7 +60,7 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
         editor.string = element.text
         editor.commit = { [weak self] in
             guard let self else { return }
-            self.committed?(self.editor.string)
+            self.commit()
         }
         editor.cancel = { [weak self] in self?.cancelled?() }
         documentView = editor
@@ -63,21 +70,35 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
     required init?(coder: NSCoder) { nil }
 
     func applyStyle(_ element: AnnotationElement, scale: CGFloat) {
+        guard !editor.hasMarkedText() else { return }
         let font = AnnotationRenderer.font(element, scale: scale)
         if editor.font != font { editor.font = font }
-        editor.textColor = AnnotationRenderer.color(element.resolvedStyle)
+        let color = AnnotationRenderer.color(element.resolvedStyle)
+        if editor.textColor != color { editor.textColor = color }
         editor.insertionPointColor = editor.textColor ?? .textColor
-        editor.alignment = AnnotationRenderer.alignment(element.resolvedStyle.textAlignment)
-        centersText = element.resolvedStyle.textAlignment == .center
+        if alignment != element.resolvedStyle.textAlignment {
+            alignment = element.resolvedStyle.textAlignment
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = AnnotationRenderer.alignment(element.resolvedStyle.textAlignment)
+            editor.defaultParagraphStyle = paragraph
+            editor.typingAttributes[.paragraphStyle] = paragraph
+            editor.textStorage?.addAttribute(.paragraphStyle, value: paragraph,
+                                            range: NSRange(location: 0, length: (editor.string as NSString).length))
+        }
+        centersVertically = element.centersTextVertically
         sizeTextContainer()
     }
 
     override func layout() {
         super.layout()
-        if centersText { sizeTextContainer() }
+        sizeTextContainer()
     }
 
     func focus() { window?.makeFirstResponder(editor) }
+    func commit() {
+        editor.unmarkText()
+        committed?(editor.string)
+    }
     func textDidChange(_ notification: Notification) {
         sizeTextContainer()
         changed?(editor.string)
@@ -89,13 +110,14 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
             with: NSSize(width: 100_000, height: 100_000),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: editor.font ?? NSFont.systemFont(ofSize: 19)]).size
-        let width: CGFloat = max(20, ceil(measured.width) + 8, centersText ? contentSize.width - 4 : 0)
-        let inset = NSSize(width: 2, height: centersText ? max(0, (contentSize.height - ceil(measured.height)) / 2) : 0)
+        let usesViewportWidth = alignment != .left
+        let width: CGFloat = max(20, ceil(measured.width), usesViewportWidth ? contentSize.width - 4 : 0)
+        let inset = NSSize(width: 2, height: centersVertically ? max(0, (contentSize.height - ceil(measured.height)) / 2) : 0)
         if editor.textContainerInset != inset { editor.textContainerInset = inset }
         let container = NSSize(width: width, height: 100_000)
         if editor.textContainer?.containerSize != container { editor.textContainer?.containerSize = container }
-        let size = NSSize(width: max(100, centersText ? width + 4 : width),
-                          height: max(80, ceil(measured.height) + 20, centersText ? contentSize.height : 0))
+        let size = NSSize(width: max(100, width + 4),
+                          height: max(80, ceil(measured.height) + 20, centersVertically ? contentSize.height : 0))
         if editor.frame.size != size { editor.setFrameSize(size) }
     }
 }
@@ -117,6 +139,7 @@ struct AnnotationTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ view: AnnotationNativeTextEditor, context: Context) {
+        view.text = text
         view.applyStyle(element, scale: scale)
         view.changed = { text = $0 }
         view.committed = commit

@@ -41,11 +41,21 @@ enum AnnotationTextPlacement {
         var size = CGSize(width: min(preferredSize.width, bounds.width),
                           height: min(preferredSize.height, bounds.height))
         var origin = element.rect.origin
-        if element.resolvedStyle.textAlignment == .center {
-            let center = CGPoint(x: element.rect.midX, y: element.rect.midY)
-            size.width = min(size.width, max(20, 2 * min(center.x - bounds.minX, bounds.maxX - center.x)))
-            size.height = min(size.height, max(20, 2 * min(center.y - bounds.minY, bounds.maxY - center.y)))
-            origin = CGPoint(x: center.x - size.width / 2, y: center.y - size.height / 2)
+        switch element.resolvedStyle.textAlignment {
+        case .left:
+            size.width = min(size.width, max(20, bounds.maxX - origin.x))
+        case .center:
+            size.width = min(size.width, max(20, 2 * min(element.rect.midX - bounds.minX, bounds.maxX - element.rect.midX)))
+            origin.x = element.rect.midX - size.width / 2
+        case .right:
+            size.width = min(size.width, max(20, element.rect.maxX - bounds.minX))
+            origin.x = element.rect.maxX - size.width
+        }
+        if element.centersTextVertically {
+            size.height = min(size.height, max(20, 2 * min(element.rect.midY - bounds.minY, bounds.maxY - element.rect.midY)))
+            origin.y = element.rect.midY - size.height / 2
+        } else {
+            size.height = min(size.height, max(20, bounds.maxY - origin.y))
         }
         return AnnotationDisplayGeometry.clampedToolbarFrame(CGRect(origin: origin, size: size), visibleFrame: bounds)
     }

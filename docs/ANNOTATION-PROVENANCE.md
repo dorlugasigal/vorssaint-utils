@@ -10,6 +10,8 @@ Microsoft ZoomIt for Mac, including the local multi-monitor fixes in the
 application shell or capture services are included.
 
 `AnnotationLinear` adapts ZoomIt's arrowhead catalog and size metrics.
+The sharp/rounded edge-option glyphs in `AnnotationControlPreview` reuse the
+solid-corner and dotted-guide paths from ZoomIt's `DrawingInspectorControls`.
 It also uses the source's tangent-directed shaft insets, translated endpoint
 controls, short-shaft clamping, and automatic click-versus-drag finishing
 policy (4 screen points, latched until release). Creation's existing 45-degree

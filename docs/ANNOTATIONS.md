@@ -109,6 +109,10 @@ Text uses the same native `NSTextView` bridge in both hosts. Return inserts a
 newline; Command-Return commits. Escape cancels. Whitespace is retained, and
 focus moving to an inspector does not commit the text. Text and style changes
 during an edit share one undo transaction.
+Switching drawing tools commits the current draft instead of discarding it.
+Horizontal alignment applies to all paragraphs without changing the caret
+selection; shape-label vertical centering is independent of left/center/right
+alignment. Ordinary text keeps its top anchor while being edited.
 Double-click empty canvas to start text at the pointer, or double-click a shape
 to start centered text. Double-clicking a shape with text at its center reopens
 that text. Text is a separate editable element, not a bound child of the shape.

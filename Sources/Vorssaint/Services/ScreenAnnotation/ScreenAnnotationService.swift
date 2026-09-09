@@ -467,6 +467,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     func setTool(_ t: AnnotationTool) {
         AnnotationColorPanels.closeCurrent()
+        drawingView?.commitTextEditorIfNeeded()
+        if let id = editingTextID, let element = strokes.first(where: { $0.id == id }) {
+            commitText(element.text)
+        }
         cancelGesture()
         if t != .select { selectedID = nil }
         tool = t
@@ -701,12 +705,20 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         document.begin()
         var style = creationStyle(for: .text)
         if centered { style.textAlignment = .center }
-        var element = existing ?? AnnotationElement(tool: .text, rect: CGRect(origin: point, size: .zero), style: style)
+        var element = existing ?? AnnotationElement(tool: .text, rect: CGRect(origin: point, size: .zero),
+                                                    style: style, centersTextVertically: centered)
         element.rect = AnnotationRenderer.textBounds(element, scale: 1)
         if existing == nil { strokes.append(element) }
         selectedID = element.id
         editingTextID = element.id
         drawingView?.beginTextEditor(element)
+        refreshDocument()
+    }
+
+    fileprivate func updateTextDraft(_ value: String) {
+        guard let id = editingTextID, let index = strokes.firstIndex(where: { $0.id == id && !$0.isLocked }) else { return }
+        strokes[index].text = value
+        strokes[index].rect = AnnotationRenderer.textBounds(strokes[index], scale: 1)
         refreshDocument()
     }
 
@@ -908,6 +920,16 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             if !condition { failures.append("annotation live host: \(label)") }
         }
         let bounds = CGRect(x: 0, y: 0, width: 500, height: 400)
+        let typing = ScreenAnnotationService(defaults: defaults)
+        typing.setTool(.text)
+        typing.beginStroke(at: CGPoint(x: 20, y: 20), bounds: bounds)
+        typing.updateTextDraft("Keep this\ntext")
+        typing.setTool(.rectangle)
+        expect(typing.editingTextID == nil && typing.strokes.first?.text == "Keep this\ntext",
+               "switching live tools commits the text draft")
+        typing.undo()
+        expect(typing.strokes.isEmpty, "live tool-switch text commit is one undo step")
+        typing.closeSession()
         expect(service.smartDrawEnabled, "live Smart Draw defaults on")
         service.smartDrawEnabled = false
         let optedOut = ScreenAnnotationService(defaults: defaults)
@@ -1090,6 +1112,7 @@ private final class AnnotationDrawingView: NSView {
         editor.frame = AnnotationTextPlacement.editorFrame(for: element,
             preferredSize: CGSize(width: 400, height: 200), bounds: bounds)
         editor.committed = { [weak service] in service?.commitText($0) }
+        editor.changed = { [weak service] in service?.updateTextDraft($0) }
         editor.cancelled = { [weak service] in service?.cancelGesture() }
         addSubview(editor)
         textEditor = editor
@@ -1111,10 +1134,15 @@ private final class AnnotationDrawingView: NSView {
         return true
     }
 
-    func updateTextEditor(_ element: AnnotationElement) { textEditor?.applyStyle(element, scale: 1) }
+    func updateTextEditor(_ element: AnnotationElement) {
+        guard let textEditor else { return }
+        textEditor.frame = AnnotationTextPlacement.editorFrame(for: element,
+            preferredSize: CGSize(width: 400, height: 200), bounds: bounds)
+        textEditor.applyStyle(element, scale: 1)
+    }
     func focusTextEditor() { textEditor?.focus() }
     func commitTextEditorIfNeeded() {
-        if let textEditor { service?.commitText(textEditor.text) }
+        textEditor?.commit()
     }
 
     func cancelInteraction() {

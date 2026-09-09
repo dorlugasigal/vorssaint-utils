@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
+// Edge preview paths adapted from ZoomIt for Mac.
+// Copyright (c) 2026 Microsoft Corporation. MIT: docs/ANNOTATION-PROVENANCE.md
 
 import CoreGraphics
 
@@ -26,7 +28,29 @@ enum AnnotationControlPreview {
         element.roughSeed = 42
         switch self {
         case .edges(let rounded):
-            style.roundness = rounded ? 0.25 : 0
+            context.saveGState()
+            context.scaleBy(x: 120 / 26, y: 120 / 26)
+            context.setStrokeColor(CGColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha))
+            context.setLineWidth(1.8)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            let bounds = CGRect(x: 5, y: 5, width: 16, height: 16)
+            context.move(to: CGPoint(x: bounds.maxX, y: bounds.minY))
+            if rounded {
+                context.addQuadCurve(to: CGPoint(x: bounds.minX, y: bounds.maxY),
+                                     control: CGPoint(x: bounds.minX, y: bounds.minY))
+            } else {
+                context.addLine(to: CGPoint(x: bounds.minX, y: bounds.minY))
+                context.addLine(to: CGPoint(x: bounds.minX, y: bounds.maxY))
+            }
+            context.strokePath()
+            context.setLineDash(phase: 0, lengths: [0.5, 3])
+            context.move(to: CGPoint(x: bounds.maxX, y: bounds.minY))
+            context.addLine(to: CGPoint(x: bounds.maxX, y: bounds.maxY))
+            context.addLine(to: CGPoint(x: bounds.minX, y: bounds.maxY))
+            context.strokePath()
+            context.restoreGState()
+            return
         case .pressure(let pressure):
             style.pressure = pressure
             style.width = 22

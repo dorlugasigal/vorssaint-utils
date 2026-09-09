@@ -16,6 +16,18 @@ enum AnnotationHostSelfTest {
               let image = context.makeImage() else { return ["annotation host: fixture creation"] }
         defer { defaults.removePersistentDomain(forName: suite) }
         failures.append(contentsOf: ScreenAnnotationService.runDataSelfTest(defaults: defaults))
+        let typing = ScreenshotEditorModel(image: image, scale: 1, defaults: defaults)
+        typing.tool = .text
+        typing.beginDrag(at: CGPoint(x: 20, y: 20))
+        typing.endDrag(at: CGPoint(x: 20, y: 20), isTap: true)
+        if let id = typing.editingTextID {
+            typing.updateTextDraft(id, text: "Keep this\ntext")
+            typing.tool = .rect
+            expect(typing.editingTextID == nil && typing.annotations.first?.text == "Keep this\ntext",
+                   "switching screenshot tools commits the current text draft")
+            typing.undo()
+            expect(typing.annotations.isEmpty, "tool-switch text commit is one undo step")
+        } else { expect(false, "tool-switch text fixture opens") }
         for tool in [ScreenshotSupport.Tool.rect, .ellipse, .arrow, .line] {
             let shapes = ScreenshotEditorModel(image: image, scale: 1, defaults: defaults)
             shapes.tool = tool

@@ -57,13 +57,30 @@ enum AnnotationUIReviewSelfTest {
                dark: true, maximumWidth: 1000)
         var style = AnnotationStyle(color: .blue, width: 4)
         style.textAlignment = .center
-        let editor = AnnotationNativeTextEditor(element: AnnotationElement(tool: .text, text: "Centered", style: style), scale: 1)
+        let editor = AnnotationNativeTextEditor(element: AnnotationElement(tool: .text, text: "Centered",
+                                                                          style: style, centersTextVertically: true), scale: 1)
         editor.frame = CGRect(x: 0, y: 0, width: 300, height: 160)
         editor.layoutSubtreeIfNeeded()
         guard let textView = editor.documentView as? NSTextView, textView.alignment == .center,
               textView.textContainerInset.height > 0,
               abs((textView.textContainer?.containerSize.width ?? 0) + 4 - editor.contentSize.width) < 1 else {
             fail("centered native text container")
+        }
+        editor.text = "Longer line\nshort"
+        let secondLine = (editor.text as NSString).range(of: "short").location
+        for alignment in AnnotationStyle.Alignment.allCases {
+            style.textAlignment = alignment
+            textView.setSelectedRange(NSRange(location: secondLine, length: 0))
+            editor.applyStyle(AnnotationElement(tool: .text, text: editor.text, style: style), scale: 1)
+            for location in [0, secondLine] {
+                let paragraph = textView.textStorage?.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle
+                guard paragraph?.alignment == AnnotationRenderer.alignment(alignment) else {
+                    fail("alignment applies to every paragraph")
+                }
+            }
+            guard textView.selectedRange().location == secondLine, textView.textContainerInset.height == 0 else {
+                fail("alignment preserves caret and ordinary top anchoring")
+            }
         }
         defaults.removePersistentDomain(forName: suite)
         print("ANNOTATION UI OK: all tools, both appearances, constrained viewport and native text")

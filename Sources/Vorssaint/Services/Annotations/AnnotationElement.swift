@@ -19,6 +19,7 @@ struct AnnotationElement: Identifiable, Equatable {
     var rotation: CGFloat = 0 { didSet { geometryRevision = UUID() } }
     var groupID: UUID?
     var isLocked = false
+    var centersTextVertically = false { didSet { geometryRevision = UUID() } }
     var controls: [CGPoint] = [] { didSet { geometryRevision = UUID() } }
     var startBinding: AnnotationBinding?
     var endBinding: AnnotationBinding?
@@ -47,12 +48,13 @@ struct AnnotationElement: Identifiable, Equatable {
             && lhs.controls == rhs.controls && lhs.startBinding == rhs.startBinding
             && lhs.endBinding == rhs.endBinding && lhs.pressures == rhs.pressures
             && lhs.roughSeed == rhs.roughSeed
+            && lhs.centersTextVertically == rhs.centersTextVertically
     }
 
     init(id: UUID = UUID(), tool: ScreenshotSupport.Tool, rect: CGRect = .zero,
          points: [CGPoint] = [], text: String = "", color: ScreenshotSupport.ColorID = .red,
          stroke: ScreenshotSupport.StrokeID = .medium, number: Int = 0,
-         style: AnnotationStyle? = nil) {
+         style: AnnotationStyle? = nil, centersTextVertically: Bool = false) {
         self.id = id
         self.tool = tool
         self.rect = rect
@@ -62,6 +64,7 @@ struct AnnotationElement: Identifiable, Equatable {
         self.stroke = stroke
         self.number = number
         self.style = style
+        self.centersTextVertically = centersTextVertically
         roughSeed = id.uuidString.utf8.reduce(UInt64(0xcbf29ce484222325)) { ($0 ^ UInt64($1)) &* 0x100000001b3 }
     }
 

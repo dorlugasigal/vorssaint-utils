@@ -160,9 +160,13 @@ enum AnnotationRenderer {
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font(annotation, scale: scale)]).size
         let size = CGSize(width: ceil(measured.width) + 4, height: ceil(measured.height))
-        let origin = annotation.resolvedStyle.textAlignment == .center
-            ? CGPoint(x: annotation.rect.midX - size.width / 2, y: annotation.rect.midY - size.height / 2)
-            : annotation.rect.origin
+        var origin = annotation.rect.origin
+        switch annotation.resolvedStyle.textAlignment {
+        case .left: break
+        case .center: origin.x = annotation.rect.midX - size.width / 2
+        case .right: origin.x = annotation.rect.maxX - size.width
+        }
+        if annotation.centersTextVertically { origin.y = annotation.rect.midY - size.height / 2 }
         return CGRect(origin: origin, size: size)
     }
 

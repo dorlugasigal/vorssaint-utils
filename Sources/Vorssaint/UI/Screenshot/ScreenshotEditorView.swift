@@ -11,7 +11,6 @@ struct ScreenshotEditorView: View {
     let controller: ScreenshotEditorController
     @ObservedObject private var l10n = L10n.shared
 
-    @State private var editingText = ""
     @State private var dragInFlight = false
     @State private var dragStartView: CGPoint = .zero
     @State private var appeared = false
@@ -399,9 +398,6 @@ struct ScreenshotEditorView: View {
                 }
                 model.endDrag(at: point, isTap: isTap, clickCount: controller.pointerClickCount,
                               constrained: NSEvent.modifierFlags.contains(.shift))
-                if model.editingTextID != nil {
-                    editingText = model.annotations.first(where: { $0.id == model.editingTextID })?.text ?? ""
-                }
             }
     }
 
@@ -581,11 +577,13 @@ struct ScreenshotEditorView: View {
             let pad = model.backdropPaddingPixels
             let preferred = CGSize(width: max(240, min(600, annotation.rect.width * zoom + 30)) / zoom,
                                    height: max(100, min(300, annotation.rect.height * zoom + 40)) / zoom)
-            let editorFrame = annotation.resolvedStyle.textAlignment == .center
+            let editorFrame = annotation.resolvedStyle.textAlignment != .left || annotation.centersTextVertically
                 ? AnnotationTextPlacement.editorFrame(for: annotation, preferredSize: preferred,
                     bounds: CGRect(origin: .zero, size: model.imageSize))
                 : CGRect(origin: annotation.rect.origin, size: preferred)
-            AnnotationTextEditor(text: $editingText, element: annotation, scale: model.scale * zoom,
+            AnnotationTextEditor(text: Binding(get: {
+                model.annotations.first(where: { $0.id == editingID })?.text ?? ""
+            }, set: { model.updateTextDraft(editingID, text: $0) }), element: annotation, scale: model.scale * zoom,
                                  commit: { model.commitText(editingID, text: $0) },
                                  cancel: model.cancelTextEditing)
                 .id(editingID)
@@ -600,15 +598,12 @@ struct ScreenshotEditorView: View {
                 )
                 .offset(x: (editorFrame.minX + pad) * zoom - 6,
                         y: (editorFrame.minY + pad) * zoom - 3)
-                .onAppear {
-                    editingText = annotation.text
-                }
         }
     }
 
     private func commitEditingTextIfNeeded() {
-        if let editingID = model.editingTextID {
-            model.commitText(editingID, text: editingText)
+        if let editingID = model.editingTextID, let element = model.annotations.first(where: { $0.id == editingID }) {
+            model.commitText(editingID, text: element.text)
         }
     }
 
