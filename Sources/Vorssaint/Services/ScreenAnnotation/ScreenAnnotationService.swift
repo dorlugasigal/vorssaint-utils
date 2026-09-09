@@ -854,6 +854,11 @@ private final class AnnotationDrawingView: NSView {
     func refreshCursor() {
         guard let window else { return }
         window.invalidateCursorRects(for: self)
+        updatePointerCursor()
+    }
+
+    private func updatePointerCursor() {
+        guard let window else { return }
         // A floating toolbar or color panel can cover the canvas without the
         // pointer ever leaving its bounds. Never claim another window's cursor.
         guard NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == window.windowNumber
@@ -866,8 +871,10 @@ private final class AnnotationDrawingView: NSView {
         addCursorRect(visibleRect, cursor: canvasCursor(at: point))
     }
 
-    override func cursorUpdate(with event: NSEvent) { refreshCursor() }
-    override func mouseEntered(with event: NSEvent) { refreshCursor() }
+    // AppKit invokes these during its structural-region pass. Invalidating
+    // cursor rectangles here would schedule that same pass recursively.
+    override func cursorUpdate(with event: NSEvent) { updatePointerCursor() }
+    override func mouseEntered(with event: NSEvent) { updatePointerCursor() }
     override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
 
     override var acceptsFirstResponder: Bool { true }
@@ -972,7 +979,7 @@ private final class AnnotationDrawingView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        refreshCursor()
+        updatePointerCursor()
         guard let service, service.isDrawingActive, service.hasLinearConstruction else { return }
         service.continueStroke(at: convert(event.locationInWindow, from: nil), bounds: bounds)
         needsDisplay = true
