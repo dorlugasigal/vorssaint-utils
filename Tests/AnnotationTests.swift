@@ -6,6 +6,8 @@ import AppKit
 enum AnnotationTests {
     static func run(_ expect: (Bool, String) -> Void) {
         testControlPreviews(expect)
+        testColorPalette(expect)
+        testPathSampling(expect)
         testToolShortcuts(expect)
         testDiagramShapes(expect)
         testCurveControlPreservation(expect)
@@ -93,6 +95,48 @@ enum AnnotationTests {
         }
     }
 
+    private static func testColorPalette(_ expect: (Bool, String) -> Void) {
+        expect(AnnotationColorPalette.colors.count == 15, "palette has three rows of five colors")
+        for source in ["abc", "#AbC", "AABBCC", "  #aabbcc\n"] {
+            expect(AnnotationColorPalette.parse(source).map(AnnotationColorPalette.hex) == "AABBCC", "RGB hex input")
+        }
+        expect(AnnotationColorPalette.parse("#1234").map(AnnotationColorPalette.hex) == "11223344", "short RGBA")
+        expect(AnnotationColorPalette.parse("12345678").map(AnnotationColorPalette.hex) == "12345678", "RGBA input")
+        expect(AnnotationColorPalette.parse("ABCDEF", alpha: 0.4)?.alpha == 0.4, "RGB preserves alpha")
+        for text in ["", "#", "12", "12345", "1234567", "123456789", "0x123456", "GGGGGG", "##ffffff", "ab cd ef"] {
+            expect(AnnotationColorPalette.parse(text) == nil, "invalid hex is rejected: \(text)")
+        }
+        expect(AnnotationColorPalette.parse("FFFFFF00", allowsAlpha: false) == nil, "redaction rejects transparent hex")
+        expect(AnnotationColorPalette.parse("FFFFFF", allowsAlpha: false) == .white, "redaction accepts opaque hex")
+        expect(AnnotationColorPalette.hex(AnnotationColor(red: .nan, green: 2, blue: -1)) == "00FF00", "hex clamps channels")
+        for color in AnnotationColorPalette.colors where color.alpha > 0 {
+            let shades = AnnotationColorPalette.shades(of: color)
+            expect(shades.count == 5 && Set(shades.map(AnnotationColorPalette.hex)).count == 5, "five distinct shades")
+            expect(shades.allSatisfy { $0 == $0.clamped() && $0.alpha == color.alpha }, "shades preserve alpha")
+        }
+        for language in AppLanguage.allCases {
+            expect(AnnotationPickerStrings.labels(language).count == 9, "picker localization for \(language)")
+        }
+        expect(!AnnotationToolShortcuts.primaryEntries.contains { $0.choice.tool == .redact }, "no main redact icon")
+        expect(AnnotationToolShortcuts.primaryEntries.count == 10, "ten main tools plus custom-shape button")
+    }
+
+    private static func testPathSampling(_ expect: (Bool, String) -> Void) {
+        let path = CGMutablePath()
+        path.move(to: .zero)
+        path.addQuadCurve(to: CGPoint(x: 16, y: 0), control: CGPoint(x: 8, y: 16))
+        path.move(to: CGPoint(x: 20, y: 0))
+        path.addCurve(to: CGPoint(x: 36, y: 0), control1: CGPoint(x: 20, y: 16), control2: CGPoint(x: 36, y: 16))
+        path.closeSubpath()
+        let lines = AnnotationPathSampling.polylines(path)
+        expect(lines.count == 2 && lines[0].count == 17 && lines[1].count == 18, "sixteen samples and subpaths preserved")
+        guard lines.count == 2, lines[0].count == 17, lines[1].count == 18 else { return }
+        expect(lines[0][8] == CGPoint(x: 8, y: 8), "quadratic midpoint")
+        expect(lines[1][8] == CGPoint(x: 28, y: 12), "cubic midpoint")
+        expect(lines[0].last == CGPoint(x: 16, y: 0) && lines[1][16] == CGPoint(x: 36, y: 0), "exact curve endpoints")
+        expect(lines[1].first == lines[1].last, "closed curve segment preserved")
+    }
+
     private static func testInteractionFeedback(_ expect: (Bool, String) -> Void) {
         var style = AnnotationStyle(color: AnnotationBrush.neonColors[0], width: 20, opacity: 0.35,
                                     smooth: false, isHighlighter: true)
@@ -116,6 +160,7 @@ enum AnnotationTests {
                 $0.setFillColor(AnnotationRenderer.color(style).cgColor)
                 $0.fillPath()
             }
+
             expect(actual != nil && actual == expected, "single highlighter click renders its rectangular footprint")
         }
         var marker = AnnotationElement(tool: .freehand, points: [origin], style: style)

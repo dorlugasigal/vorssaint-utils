@@ -55,6 +55,13 @@ enum AnnotationToolShortcuts {
         entries.first { $0.choice == choice }?.keys.first
     }
 
+    static var primaryEntries: [Entry] {
+        entries.filter {
+            if case .shape(let shape) = $0.choice { return !shape.isDiagram }
+            return $0.choice.tool != .redact
+        }
+    }
+
     static func resolve(keyCode: Int, characters: String?, shift: Bool,
                         hasApplicationModifier: Bool, isTyping: Bool = false) -> AnnotationToolChoice? {
         guard !hasApplicationModifier, !isTyping else { return nil }

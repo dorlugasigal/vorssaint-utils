@@ -40,8 +40,12 @@ enum AnnotationControlPreview {
             style.shape = shape
         case .route(let curved):
             style.curved = curved
-            element.tool = .line
-            element.points = [CGPoint(x: 10, y: 85), CGPoint(x: 60, y: 30), CGPoint(x: 110, y: 70)]
+            style.endHead = .arrow
+            style.headSize = 1.5
+            element.tool = .arrow
+            element.points = curved
+                ? [CGPoint(x: 20, y: 100), CGPoint(x: 40, y: 48), CGPoint(x: 100, y: 28)]
+                : [CGPoint(x: 20, y: 100), CGPoint(x: 100, y: 20)]
         case .head(let head, let start):
             style.width = 4
             element.tool = .arrow

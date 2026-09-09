@@ -24,10 +24,7 @@ private struct AnnotationToolbarView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 4) {
-                ForEach(AnnotationToolShortcuts.entries.filter {
-                    if case .shape(let shape) = $0.choice { return !shape.isDiagram }
-                    return true
-                }, id: \.choice) { entry in
+                ForEach(AnnotationToolShortcuts.primaryEntries, id: \.choice) { entry in
                     Button { service.setToolChoice(entry.choice) } label: {
                         VStack(spacing: 2) {
                             Image(systemName: toolSymbol(entry.choice)).frame(height: 21)
@@ -47,23 +44,24 @@ private struct AnnotationToolbarView: View {
                 AnnotationDiagramMenu(
                     selected: service.tool == .rectangle && service.inspectorStyle.shape.isDiagram
                         ? service.inspectorStyle.shape : nil,
+                    toolbarStyle: true, isRedacting: service.tool == .redact,
+                    redact: { service.setToolChoice(.tool(.redact)) },
                     select: { service.setToolChoice(.shape($0)) })
             }
             Divider()
             HStack(spacing: 9) {
                 ForEach(Array(presetColors.enumerated()), id: \.offset) { _, color in
                     Button { service.setColor(color) } label: {
-                        Circle()
-                            .fill(Color(red: color.red, green: color.green, blue: color.blue))
-                            .frame(width: 18, height: 18)
-                            .overlay(Circle().strokeBorder(
-                                service.inspectorStyle.color == color ? Color.primary : Color.clear, lineWidth: 2.5))
+                        AnnotationColorSwatch(color: color, selected: service.inspectorStyle.color == color)
+                            .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel("#\(AnnotationColorPalette.hex(color))")
                 }
                 AnnotationColorControl(color: Binding(get: { service.inspectorStyle.color }, set: service.setColor),
                                        editingChanged: service.styleEditingChanged,
-                                       allowsAlpha: service.inspectorTool != .redact)
+                                       allowsAlpha: service.inspectorTool != .redact,
+                                       title: AnnotationPickerStrings.text(.stroke, localization.language))
                     .frame(width: 32, height: 28)
                     .help(FeatureStrings.screenshot(localization.language).colorLabel)
                 Divider().frame(height: 20)

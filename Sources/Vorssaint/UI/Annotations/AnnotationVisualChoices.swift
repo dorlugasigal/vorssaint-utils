@@ -55,6 +55,45 @@ struct AnnotationVisualChoices<Value: Hashable>: View {
     }
 }
 
+struct AnnotationArrowOptions: View {
+    @Binding var style: AnnotationStyle
+    @ObservedObject private var localization = L10n.shared
+    @State private var isPresented = false
+
+    var body: some View {
+        Button { isPresented.toggle() } label: {
+            AnnotationPreviewTile(preview: .route(curved: style.curved), isSelected: isPresented)
+        }
+        .buttonStyle(.plain)
+        .help(AnnotationPickerStrings.text(.heads, localization.language))
+        .accessibilityLabel(AnnotationPickerStrings.text(.heads, localization.language))
+        .popover(isPresented: $isPresented) {
+            AnnotationArrowOptionsContent(style: $style)
+        }
+    }
+}
+
+struct AnnotationArrowOptionsContent: View {
+    @Binding var style: AnnotationStyle
+    @ObservedObject private var localization = L10n.shared
+
+    var body: some View {
+        let labels = AnnotationLinearStrings.labels(localization.language)
+        VStack(alignment: .leading, spacing: 14) {
+            Text(AnnotationPickerStrings.text(.heads, localization.language)).font(.headline)
+            HStack(spacing: 14) {
+                AnnotationArrowheadChoice(selection: $style.startHead, isStart: true, label: labels[16])
+                AnnotationArrowheadChoice(selection: $style.endHead, isStart: false, label: labels[17])
+            }
+            Text(AnnotationPickerStrings.text(.route, localization.language)).font(.headline)
+            AnnotationVisualChoices(values: [false, true], selection: $style.curved,
+                                    label: { $0 ? labels[14] : FeatureStrings.screenshot(localization.language).toolLine },
+                                    preview: { .route(curved: $0) })
+        }
+        .padding(16).background(.regularMaterial)
+    }
+}
+
 struct AnnotationArrowheadChoice: View {
     @Binding var selection: AnnotationArrowhead
     var isStart: Bool
@@ -71,6 +110,7 @@ struct AnnotationArrowheadChoice: View {
                 AnnotationPreviewTile(preview: .head(selection, start: isStart))
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
             }
+
         }
         .buttonStyle(.plain)
         .help("\(label): \(AnnotationLinearStrings.head(selection, localization.language))")

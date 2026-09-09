@@ -25,16 +25,8 @@ enum AnnotationPathSampling {
                 let c2 = cubic ? element.points[1] : c1
                 let end = element.points[cubic ? 2 : 1]
                 for index in 1...16 {
-                    let t = CGFloat(index) / 16, u = 1 - t
-                    let point: CGPoint
-                    if cubic {
-                        point = CGPoint(x: u*u*u*start.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*end.x,
-                                        y: u*u*u*start.y + 3*u*u*t*c1.y + 3*u*t*t*c2.y + t*t*t*end.y)
-                    } else {
-                        point = CGPoint(x: u*u*start.x + 2*u*t*c1.x + t*t*end.x,
-                                        y: u*u*start.y + 2*u*t*c1.y + t*t*end.y)
-                    }
-                    line.append(point)
+                    let t = CGFloat(index) / 16
+                    line.append(curvePoint(start: start, c1: c1, c2: c2, end: end, t: t, cubic: cubic))
                 }
                 current = end
             case .closeSubpath:
@@ -44,6 +36,18 @@ enum AnnotationPathSampling {
         }
         if !line.isEmpty { result.append(line) }
         return result
+    }
+
+    private static func curvePoint(start: CGPoint, c1: CGPoint, c2: CGPoint, end: CGPoint,
+                                   t: CGFloat, cubic: Bool) -> CGPoint {
+        let u: CGFloat = 1 - t
+        let a: CGFloat = cubic ? u * u * u : u * u
+        let b: CGFloat = cubic ? 3 * u * u * t : 2 * u * t
+        let c: CGFloat = cubic ? 3 * u * t * t : 0
+        let d: CGFloat = cubic ? t * t * t : t * t
+        let x: CGFloat = a * start.x + b * c1.x + c * c2.x + d * end.x
+        let y: CGFloat = a * start.y + b * c1.y + c * c2.y + d * end.y
+        return CGPoint(x: x, y: y)
     }
 
     static func sweptHit(_ element: AnnotationElement, from start: CGPoint, to end: CGPoint,

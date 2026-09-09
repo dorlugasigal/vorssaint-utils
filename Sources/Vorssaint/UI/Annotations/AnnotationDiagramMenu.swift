@@ -5,24 +5,61 @@ import SwiftUI
 
 struct AnnotationDiagramMenu: View {
     var selected: AnnotationStyle.Shape?
+    var toolbarStyle = false
+    var isRedacting = false
+    var redact: (() -> Void)?
     var select: (AnnotationStyle.Shape) -> Void
     @ObservedObject private var localization = L10n.shared
+    @State private var isPresented = false
 
     var body: some View {
-        Menu {
-            ForEach(AnnotationStyle.Shape.allCases.filter(\.isDiagram), id: \.rawValue) { shape in
-                Button { select(shape) } label: {
-                    Label(AnnotationDiagramStrings.title(shape, localization.language), systemImage: shape.symbolName)
+        Button { isPresented.toggle() } label: {
+            VStack(spacing: 2) {
+                Image(systemName: "square.on.circle").frame(height: 21)
+                if toolbarStyle {
+                    Image(systemName: "chevron.down").font(.system(size: 9))
+                        .foregroundStyle(.secondary)
                 }
             }
-        } label: {
-            Image(systemName: selected?.symbolName ?? "square.on.circle")
-                .frame(width: 27, height: 28)
-                .foregroundStyle(selected == nil ? Color.primary : Color.accentColor)
+            .frame(width: toolbarStyle ? 34 : 27, height: toolbarStyle ? 36 : 28)
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
+        .buttonStyle(.borderless)
+        .background(selected != nil || isRedacting || isPresented ? Color.accentColor.opacity(0.22) : .clear,
+                    in: RoundedRectangle(cornerRadius: 7))
         .help(AnnotationSessionStrings.customShapes(localization.language))
         .accessibilityLabel(AnnotationSessionStrings.customShapes(localization.language))
+        .accessibilityAddTraits(selected != nil || isRedacting ? .isSelected : [])
+        .popover(isPresented: $isPresented) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(AnnotationSessionStrings.customShapes(localization.language)).font(.headline)
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(86)), count: 3), spacing: 10) {
+                    ForEach(AnnotationStyle.Shape.allCases.filter(\.isDiagram), id: \.rawValue) { shape in
+                        Button {
+                            isPresented = false
+                            select(shape)
+                        } label: {
+                            VStack(spacing: 5) {
+                                AnnotationPreviewTile(preview: .shape(shape), isSelected: selected == shape)
+                                Text(AnnotationDiagramStrings.title(shape, localization.language))
+                                    .font(.caption).lineLimit(2)
+                            }.frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(AnnotationDiagramStrings.title(shape, localization.language))
+                        .accessibilityAddTraits(selected == shape ? .isSelected : [])
+                    }
+                }
+                if let redact {
+                    Divider()
+                    Button {
+                        isPresented = false
+                        redact()
+                    } label: {
+                        Label(FeatureStrings.screenshot(localization.language).toolRedact, systemImage: "eye.slash")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }.padding(16)
+        }
     }
 }
