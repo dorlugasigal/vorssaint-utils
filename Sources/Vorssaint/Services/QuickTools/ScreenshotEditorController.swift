@@ -131,6 +131,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var additiveSelection = false
     private var marqueeSelection: Set<UUID> = []
     private var linearConstruction: AnnotationLinearConstruction?
+    private var cancelledLinearPointer = false
     private var strokeSampler = AnnotationInputSampler()
     private let smartDraw = AnnotationSmartDraw()
     private var strokeStartTime: TimeInterval = 0
@@ -140,7 +141,11 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             if !smartDrawEnabled { smartDraw.cancel() }
         }
     }
-    var hasLinearConstruction: Bool { linearConstruction != nil }
+    var hasLinearConstruction: Bool { linearConstruction?.isClickConstruction == true }
+    var linearFinishHandle: CGPoint? { linearConstruction?.finishHandle }
+    func isLinearFinishHandle(at point: CGPoint) -> Bool {
+        linearConstruction?.hitsFinishHandle(point, viewScale: currentDisplayZoom) == true
+    }
     private var activeHandle: ScreenshotSupport.Handle?
     private var cropResizeOrigin: CGRect?
     private var cropMoveOrigin: CGRect?
@@ -150,10 +155,15 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var newTextID: UUID?
     private var annotationStyleDefaults: AnnotationStyle?
     private var freehandStyleDefaults: AnnotationStyle?
+    private var linearStyleDefaults: [ScreenshotSupport.Tool: AnnotationStyle] = [:]
 
     var creationStyle: AnnotationStyle {
         if tool == .freehand, let freehandStyleDefaults { return freehandStyleDefaults }
-        return annotationStyleDefaults ?? AnnotationElement(tool: tool, color: color, stroke: stroke).resolvedStyle
+        let base = annotationStyleDefaults ?? AnnotationElement(tool: tool, color: color, stroke: stroke).resolvedStyle
+        if tool == .arrow || tool == .line {
+            return linearStyleDefaults[tool] ?? AnnotationLinear.creationStyle(for: tool, base: base)
+        }
+        return base
     }
 
     var shapeGhost: AnnotationElement? {
@@ -203,6 +213,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             AnnotationBindings.finishEdit(selectedIDs, elements: &annotations, tolerance: 14 * scale)
         } else {
             if tool == .freehand { freehandStyleDefaults = style }
+            else if tool == .arrow || tool == .line { linearStyleDefaults[tool] = style }
             else { annotationStyleDefaults = style }
             objectWillChange.send()
         }
@@ -557,11 +568,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     // MARK: - Gestures (image-pixel coordinates)
 
     func beginDrag(at point: CGPoint, extendingSelection: Bool = false) {
+        cancelledLinearPointer = false
         smartDraw.cancel()
         strokeStartTime = ProcessInfo.processInfo.systemUptime
-        if var construction = linearConstruction {
-            construction.add(point)
-            linearConstruction = construction
+        if linearConstruction != nil {
+            linearConstruction?.beginPointer(at: point, constrained: NSEvent.modifierFlags.contains(.shift),
+                                              viewScale: currentDisplayZoom)
             previewLinear(at: point)
             return
         }
@@ -603,12 +615,10 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             registerUndo()
             dragRegistered = true
             let annotation = ScreenshotSupport.Annotation(
-                tool: tool, points: [point, point], color: color, stroke: stroke, style: annotationStyleDefaults)
+                tool: tool, points: [point, point], color: color, stroke: stroke, style: creationStyle)
             annotations.append(annotation)
             draftID = annotation.id
-            if inspectorStyle.multiClick {
-                linearConstruction = AnnotationLinearConstruction(element: annotation, at: point)
-            }
+            linearConstruction = AnnotationLinearConstruction(element: annotation, at: point, viewScale: currentDisplayZoom)
         case .freehand:
             registerUndo()
             dragRegistered = true
@@ -666,9 +676,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     func continueDrag(to point: CGPoint, final: Bool = false) {
+        guard !cancelledLinearPointer else { return }
         defer { AnnotationBindings.resolve(&annotations) }
-        let point = NSEvent.modifierFlags.contains(.shift) && (tool == .arrow || tool == .line)
-            && !editingSelectedAnnotation ? AnnotationLinear.constrained(point, from: dragStart) : point
         if linearConstruction != nil { previewLinear(at: point); return }
         if editingSelectedAnnotation {
             continueSelectDrag(to: point)
@@ -746,10 +755,16 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// `isTap` is decided by the view in screen points, so a click stays a
     /// click at any zoom level; deciding it here in image pixels made taps
     /// on zoomed-out Retina captures read as drags (the text tool bug).
-    func endDrag(at point: CGPoint, isTap: Bool) {
+    func endDrag(at point: CGPoint, isTap: Bool, clickCount: Int = 1) {
+        if cancelledLinearPointer {
+            cancelledLinearPointer = false
+            return
+        }
         if linearConstruction != nil {
-            linearConstruction?.add(point)
-            previewLinear(at: point)
+            let finish = linearConstruction?.release(at: point, constrained: NSEvent.modifierFlags.contains(.shift),
+                viewScale: currentDisplayZoom, clickCount: clickCount) == true
+            updateLinearPreview()
+            if finish { finishLinearConstruction(commitPreview: false) }
             return
         }
         defer {
@@ -772,7 +787,15 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             dragRegistered = false
             editingSelectedAnnotation = false
         }
-        if !isTap { continueDrag(to: point, final: true) }
+        if isTap, clickCount >= 2, let gesture = annotationGesture, case .point(let vertex) = gesture.handle,
+           vertex > 0, vertex + 1 < gesture.original.points.count,
+           let index = annotations.firstIndex(where: { $0.id == gesture.original.id }) {
+            registerUndo()
+            dragRegistered = true
+            annotations[index] = AnnotationLinear.removingPoint(in: gesture.original, index: vertex)
+        } else if isTap, let gesture = annotationGesture, case .midpoint = gesture.handle {
+            continueSelectDrag(to: point)
+        } else if !isTap { continueDrag(to: point, final: true) }
         if editingSelectedAnnotation {
             finishSelectDrag(at: point, isTap: isTap)
             return
@@ -909,16 +932,26 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     func previewLinear(at point: CGPoint) {
-        guard var construction = linearConstruction,
+        linearConstruction?.updatePreview(at: point, constrained: NSEvent.modifierFlags.contains(.shift),
+                                           viewScale: currentDisplayZoom)
+        updateLinearPreview()
+    }
+
+    func updateLinearConstraint(_ constrained: Bool) {
+        linearConstruction?.updateConstraint(constrained, viewScale: currentDisplayZoom)
+        updateLinearPreview()
+    }
+
+    private func updateLinearPreview() {
+        guard let construction = linearConstruction,
               let index = annotations.firstIndex(where: { $0.id == construction.element.id }) else { return }
-        construction.preview = point
-        linearConstruction = construction
         annotations[index] = construction.displayed
     }
 
-    func finishLinearConstruction() {
-        guard let construction = linearConstruction else { return }
-        guard let element = construction.completed,
+    func finishLinearConstruction(commitPreview: Bool = true) {
+        guard linearConstruction != nil else { return }
+        cancelledLinearPointer = linearConstruction?.pointerIsDown == true
+        guard let element = linearConstruction?.finish(commitPreview: commitPreview),
               let index = annotations.firstIndex(where: { $0.id == element.id }) else {
             cancelLinearConstruction()
             return
@@ -928,15 +961,30 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         AnnotationBindings.finishEdit([element.id], elements: &annotations, tolerance: 14 * scale)
         linearConstruction = nil
         draftID = nil
+        dragRegistered = false
         history.commit(snapshot)
         refreshUndoFlags()
         refreshDirtyState()
     }
 
-    func cancelLinearConstruction() {
+    @discardableResult
+    func cancelLinearConstruction() -> Bool {
+        if linearConstruction == nil, let gesture = annotationGesture,
+           gesture.original.tool == .arrow || gesture.original.tool == .line {
+            cancelledLinearPointer = true
+            if let original = history.cancel() { restore(original) }
+            annotationGesture = nil
+            groupGestures.removeAll()
+            dragRegistered = false
+            return true
+        }
+        guard let construction = linearConstruction else { return false }
+        cancelledLinearPointer = cancelledLinearPointer || construction.pointerIsDown
         if let original = history.cancel() { restore(original) }
         linearConstruction = nil
         draftID = nil
+        dragRegistered = false
+        return true
     }
 
     func editLinearPoints(_ insert: Bool) {
@@ -1092,6 +1140,7 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
     var windowNumber: Int? { window?.windowNumber }
     private var keyMonitor: Any?
     private var scrollMonitor: Any?
+    private(set) var pointerClickCount = 1
 
     var protectedWindowIDs: Set<CGWindowID> {
         guard let window, window.isVisible, window.windowNumber > 0 else { return [] }
@@ -1161,15 +1210,23 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
     // MARK: Keyboard
 
     private func installKeyMonitor() {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown]) { [weak self] event in
             guard let self, let window = self.window,
                   ScreenshotSupport.editorOwnsKeyEvent(
                     eventWindowNumber: event.windowNumber,
                     editorWindowNumber: window.windowNumber,
                     editorIsKey: window.isKeyWindow)
             else { return event }
+            if event.type == .leftMouseDown {
+                self.pointerClickCount = event.clickCount
+                return event
+            }
             // While a text field edits, every key belongs to it.
             if window.firstResponder is NSText || self.model.editingTextID != nil {
+                return event
+            }
+            if event.type == .flagsChanged {
+                self.model.updateLinearConstraint(event.modifierFlags.contains(.shift))
                 return event
             }
             return self.handleKey(event) ? nil : event
@@ -1250,7 +1307,9 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
             }
             return true
         case kVK_Escape:
-            if model.tool == .crop, model.cropDraft != nil {
+            if model.cancelLinearConstruction() {
+                return true
+            } else if model.tool == .crop, model.cropDraft != nil {
                 model.tool = .select
             } else if !model.selectedWordIndexes.isEmpty {
                 model.clearTextSelection()

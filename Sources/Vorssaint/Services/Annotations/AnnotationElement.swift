@@ -101,7 +101,6 @@ struct AnnotationStyle: Equatable {
     var axisTicks = true
     var axisNegative = false
     var curved = false
-    var multiClick = false
     var startHead: AnnotationArrowhead = .none
     var endHead: AnnotationArrowhead = .legacy
     var headSize: CGFloat = 1

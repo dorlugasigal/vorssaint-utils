@@ -6,6 +6,40 @@ import AppKit
 /// The annotation paint pass, shared by the transparent desktop canvas,
 /// screenshot preview and pixel export. Image effects remain in the host.
 enum AnnotationRenderer {
+    static func drawLinearMidpoints(_ element: AnnotationElement, in context: CGContext, scale: CGFloat) {
+        guard !element.isLocked else { return }
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.setLineDash(phase: 0, lengths: [])
+        context.setStrokeColor(NSColor.systemBlue.cgColor)
+        context.setFillColor(NSColor.white.withAlphaComponent(0.8).cgColor)
+        context.setLineWidth(scale)
+        for point in AnnotationLinear.midpoints(element) {
+            let radius = 4 * scale
+            context.move(to: CGPoint(x: point.x, y: point.y - radius))
+            context.addLine(to: CGPoint(x: point.x + radius, y: point.y))
+            context.addLine(to: CGPoint(x: point.x, y: point.y + radius))
+            context.addLine(to: CGPoint(x: point.x - radius, y: point.y))
+            context.closePath()
+            context.drawPath(using: .fillStroke)
+        }
+    }
+
+    static func drawLinearFinishHandle(at point: CGPoint, in context: CGContext, scale: CGFloat) {
+        context.saveGState()
+        defer { context.restoreGState() }
+        let radius = 7 * scale
+        let rect = CGRect(x: point.x - radius, y: point.y - radius, width: 2 * radius, height: 2 * radius)
+        context.setLineDash(phase: 0, lengths: [])
+        context.setFillColor(NSColor.white.cgColor)
+        context.setStrokeColor(NSColor.systemBlue.cgColor)
+        context.setLineWidth(2 * scale)
+        context.fillEllipse(in: rect)
+        context.strokeEllipse(in: rect)
+        context.setFillColor(NSColor.systemBlue.cgColor)
+        context.fillEllipse(in: rect.insetBy(dx: 4 * scale, dy: 4 * scale))
+    }
+
     static func color(_ style: AnnotationStyle) -> NSColor {
         let rgb = style.color.clamped()
         return NSColor(srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: rgb.alpha * style.opacity)

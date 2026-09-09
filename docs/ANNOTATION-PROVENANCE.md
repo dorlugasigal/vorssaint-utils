@@ -10,6 +10,10 @@ Microsoft ZoomIt for Mac, including the local multi-monitor fixes in the
 application shell or capture services are included.
 
 `AnnotationLinear` adapts ZoomIt's arrowhead catalog and size metrics.
+It also uses the source's tangent-directed shaft insets, translated endpoint
+controls, short-shaft clamping, and automatic click-versus-drag finishing
+policy (4 screen points, latched until release). Creation's existing 45-degree
+Shift constraint remains distinct from the source's 15-degree rotation snap.
 `AnnotationRoughness` adapts its seeded generator and Artist/Cartoonist profile
 metrics to the shared CGContext path pass. Endpoints remain pinned, and the
 default Architect style preserves Vorssaint's original screenshot geometry.

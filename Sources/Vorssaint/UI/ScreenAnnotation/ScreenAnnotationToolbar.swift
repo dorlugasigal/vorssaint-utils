@@ -81,7 +81,7 @@ private struct AnnotationToolbarView: View {
                                 showsStrokeColor: false, layoutChanged: service.scheduleToolbarLayout)
             HStack {
                 if service.hasLinearConstruction {
-                    Button(FeatureStrings.screenshot(localization.language).done, action: service.finishLinearConstruction)
+                    Button(FeatureStrings.screenshot(localization.language).done) { service.finishLinearConstruction() }
                     Button(FeatureStrings.screenshot(localization.language).cancel, action: service.cancelLinearConstruction)
                 }
                 AnnotationSelectionMenu(hasSelection: !service.selectedIDs.isEmpty, perform: service.performSelectionAction)
