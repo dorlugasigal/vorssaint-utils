@@ -1048,7 +1048,7 @@ private final class AnnotationDrawingView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     /// Flipped so origin is top-left, matching screen pixels.
     override var isFlipped: Bool { true }
-    
+
 
     // MARK: Drawing
 
