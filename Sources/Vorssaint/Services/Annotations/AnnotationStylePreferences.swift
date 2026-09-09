@@ -19,6 +19,7 @@ enum AnnotationStylePreferences {
         var style = value.sanitized()
         if style.character == .artist { style.character = .architect }
         if style.pressure == .hardware { style.pressure = .constant }
+        if style.roundness == 0.25 { style.roundness = 0.5 }
         return style
     }
 

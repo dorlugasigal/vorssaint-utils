@@ -98,7 +98,7 @@ enum AnnotationFreehand {
 /// a copy of a long stroke on each event.
 final class AnnotationPathCache {
     static let shared = AnnotationPathCache()
-    enum Component: Hashable { case body, hatch }
+    enum Component: Hashable { case body, hatch, shapeBoundary }
     private struct Key: Hashable {
         let id: UUID
         let component: Component

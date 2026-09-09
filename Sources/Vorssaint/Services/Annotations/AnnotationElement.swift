@@ -264,7 +264,13 @@ enum AnnotationGeometry {
         }
     }
 
-    static func uncachedPath(_ element: AnnotationElement, renderScale: CGFloat = 1) -> CGPath {
+    static func shapeBoundary(_ element: AnnotationElement) -> CGPath {
+        AnnotationPathCache.shared.path(element, scale: 1, component: .shapeBoundary) {
+            uncachedPath(element, applyRoughness: false)
+        }
+    }
+
+    static func uncachedPath(_ element: AnnotationElement, renderScale: CGFloat = 1, applyRoughness: Bool = true) -> CGPath {
         let path = CGMutablePath()
         switch element.tool {
         case .rect:
@@ -335,7 +341,7 @@ enum AnnotationGeometry {
             if let last = element.points.last { path.addLine(to: last) }
         case .text, .sticker, .counter, .select, .crop: break
         }
-        let rough = element.tool == .redact || element.tool == .highlight || element.tool == .pixelate
+        let rough = !applyRoughness || element.tool == .redact || element.tool == .highlight || element.tool == .pixelate
             || (element.tool == .freehand && element.resolvedStyle.isHighlighter)
             ? path : AnnotationRoughness.path(path, character: element.resolvedStyle.character,
                                              seed: element.roughSeed, width: element.resolvedStyle.width, scale: renderScale,
@@ -371,7 +377,8 @@ enum AnnotationGeometry {
             return hypot(point.x - element.rect.midX, point.y - element.rect.midY) <= radius + 4 * scale
         case .rect, .ellipse, .highlight, .pixelate, .redact:
             let geometry = path(element)
-            if includeShapeInteriors && geometry.contains(point) { return true }
+            let interior = element.tool == .rect || element.tool == .ellipse ? shapeBoundary(element) : geometry
+            if includeShapeInteriors && interior.contains(point) { return true }
             return geometry.copy(strokingWithWidth: tolerance, lineCap: .round,
                                  lineJoin: .round, miterLimit: 10).contains(point)
         case .text, .sticker:

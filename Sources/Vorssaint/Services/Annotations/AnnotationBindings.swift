@@ -83,7 +83,7 @@ enum AnnotationBindings {
         guard rect.width > 0 && rect.height > 0 else { return CGPoint(x: rect.midX, y: rect.midY) }
         if target.tool == .rect && target.resolvedStyle.roundness > 0 {
             var inverse = AnnotationGeometry.transform(target).inverted()
-            let path = AnnotationGeometry.path(target).copy(using: &inverse) ?? AnnotationGeometry.path(target)
+            let path = AnnotationGeometry.shapeBoundary(target).copy(using: &inverse) ?? AnnotationGeometry.shapeBoundary(target)
             var nearest = CGPoint(x: rect.midX, y: rect.minY)
             var distance = CGFloat.infinity
             for points in AnnotationPathSampling.polylines(path) {

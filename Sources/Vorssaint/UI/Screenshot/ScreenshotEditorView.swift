@@ -523,15 +523,8 @@ struct ScreenshotEditorView: View {
             : AnnotationGeometry.bounds(selected).insetBy(dx: -3 * scale, dy: -3 * scale)
         cg.stroke(box)
         cg.setLineDash(phase: 0, lengths: [])
-        if selected.tool.resizesWithHandles && !selected.isLocked {
-            for handle in ScreenshotSupport.Handle.allCases {
-                let position = handle.position(in: selected.rect)
-                let dot = CGRect(x: position.x - 3.5 * scale, y: position.y - 3.5 * scale,
-                                 width: 7 * scale, height: 7 * scale)
-                cg.setFillColor(CGColor(gray: 1, alpha: 1))
-                cg.fillEllipse(in: dot)
-                cg.strokeEllipse(in: dot)
-            }
+        if model.selectedIDs.count == 1 {
+            AnnotationRenderer.drawLocalResizeHandles(selected, in: cg, scale: scale)
         }
     }
 

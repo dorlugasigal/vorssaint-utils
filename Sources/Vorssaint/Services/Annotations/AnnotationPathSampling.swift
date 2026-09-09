@@ -58,11 +58,17 @@ enum AnnotationPathSampling {
             path = CGPath(rect: element.rect, transform: &transform)
         } else if element.tool == .freehand {
             path = AnnotationBrush.ink(element)
+        } else if (element.tool == .rect || element.tool == .ellipse) && element.resolvedStyle.fill != .none {
+            path = AnnotationGeometry.shapeBoundary(element)
         } else { path = AnnotationGeometry.path(element) }
         let filled = element.tool == .freehand || element.tool == .text || element.tool == .redact
             || element.tool == .highlight || AnnotationLinear.usesLegacyArrow(element)
             || ((element.tool == .rect || element.tool == .ellipse) && element.resolvedStyle.fill != .none)
         var paths: [(CGPath, Bool)] = [(path, filled)]
+        if (element.tool == .rect || element.tool == .ellipse), filled,
+           element.resolvedStyle.character != .architect {
+            paths.append((AnnotationGeometry.path(element), false))
+        }
         if element.tool == .arrow || element.tool == .line {
             paths.append(contentsOf: AnnotationLinear.heads(element, scale: 1))
         }

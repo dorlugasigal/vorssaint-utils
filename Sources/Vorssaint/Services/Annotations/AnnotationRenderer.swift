@@ -6,6 +6,30 @@ import AppKit
 /// The annotation paint pass, shared by the transparent desktop canvas,
 /// screenshot preview and pixel export. Image effects remain in the host.
 enum AnnotationRenderer {
+    static func drawLocalResizeHandles(_ element: AnnotationElement, in context: CGContext, scale: CGFloat = 1) {
+        guard element.tool.resizesWithHandles, !element.isLocked else { return }
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.setLineDash(phase: 0, lengths: [])
+        context.setLineWidth(1.5 * scale)
+        context.setStrokeColor(NSColor.systemBlue.cgColor)
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        for handle in ScreenshotSupport.Handle.allCases {
+            let point = handle.position(in: element.rect)
+            let dot = CGRect(x: point.x - 3.5 * scale, y: point.y - 3.5 * scale, width: 7 * scale, height: 7 * scale)
+            context.fillEllipse(in: dot)
+            context.strokeEllipse(in: dot)
+        }
+        if let rotation = AnnotationEditGesture.rotationHandle(for: element, scale: scale) {
+            context.move(to: CGPoint(x: element.rect.midX, y: element.rect.minY))
+            context.addLine(to: rotation)
+            context.strokePath()
+            let dot = CGRect(x: rotation.x - 4 * scale, y: rotation.y - 4 * scale, width: 8 * scale, height: 8 * scale)
+            context.fillEllipse(in: dot)
+            context.strokeEllipse(in: dot)
+        }
+    }
+
     static func drawLinearMidpoints(_ element: AnnotationElement, in context: CGContext, scale: CGFloat) {
         guard !element.isLocked else { return }
         context.saveGState()
@@ -72,8 +96,8 @@ enum AnnotationRenderer {
         case .dotted: context.setLineDash(phase: 0, lengths: [0.01 * scaledStyle.width, 2.5 * scaledStyle.width])
         }
         let path = AnnotationGeometry.path(annotation, scale: scale)
-        if annotation.tool == .rect || annotation.tool == .ellipse {
-            drawFill(annotation, path: path, in: context, scale: scale)
+        if (annotation.tool == .rect || annotation.tool == .ellipse) && style.fill != .none {
+            drawFill(annotation, path: AnnotationGeometry.shapeBoundary(annotation), in: context, scale: scale)
         }
         context.addPath(path)
         switch annotation.tool {

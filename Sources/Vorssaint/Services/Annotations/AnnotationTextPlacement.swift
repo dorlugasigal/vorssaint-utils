@@ -17,7 +17,7 @@ enum AnnotationTextPlacement {
         if let owner = AnnotationEditGesture.owner(at: point, in: elements, selection: selection,
                                                    scale: scale, imageSize: imageSize),
            owner.tool == .arrow || owner.tool == .line,
-           AnnotationEditGesture.handle(for: owner, at: point, tolerance: 12 * scale) != nil {
+           AnnotationEditGesture.handle(for: owner, at: point, tolerance: 12 * scale, scale: scale) != nil {
             return .linear
         }
         guard let hit = elements.last(where: {

@@ -685,7 +685,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
            let selected = annotations.first(where: { $0.id == selectedID }) {
             let tolerance = 12 * scale
             if selectedIDs.count == 1,
-               let handle = AnnotationEditGesture.handle(for: selected, at: point, tolerance: tolerance) {
+               let handle = AnnotationEditGesture.handle(for: selected, at: point, tolerance: tolerance, scale: scale) {
                 annotationGesture = AnnotationEditGesture(original: selected, anchor: point, handle: handle)
                 return
             }

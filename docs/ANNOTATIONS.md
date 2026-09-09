@@ -74,9 +74,10 @@ Selecting transparent removes the fill and hides those styles. Pressure offers
 Constant and Simulated; the legacy Tablet value remains readable and saved
 creation defaults migrate to Constant.
 The stroke-character picker offers Architect (clean) and Cartoonist (rough).
-Rough closed shapes use two subtly uneven contours with slight corner
-misregistration and small seeded overshoots, rather than large opposing bows.
-Open connectors keep their endpoints pinned.
+Rough shape outlines use independent paired strokes for each edge, following
+Rough.js's line/cubic construction rather than two offset closed rectangles.
+Fills, interior hit testing and connector anchors use a separate canonical
+boundary. Open connectors keep their endpoints pinned.
 The retired middle Artist preset remains decodable for existing styles;
 saved creation defaults migrate to Architect. Redact is available in the
 live toolbar's custom-shape menu and remains a separate screenshot tool.
@@ -107,6 +108,8 @@ The selection menu and canvas context menu provide duplicate/delete,
 group/ungroup, lock/unlock and all four layer actions. Transform/enlargement
 sliders are removed; direct handles and menu actions remain. Locked objects resist
 direct editing. Screenshot pixelation regions remain axis-aligned.
+Selected shapes show corner/edge resize handles and a rotation handle above
+the selection. Pixelation has resize handles but no rotation handle.
 
 Text uses the same native `NSTextView` bridge in both hosts. Return inserts a
 newline; Command-Return commits. Escape cancels. Whitespace is retained, and

@@ -109,6 +109,7 @@ struct AnnotationEditGesture {
         case point(Int)
         case control(Int)
         case midpoint(Int)
+        case rotate
     }
     let original: AnnotationElement
     let anchor: CGPoint
@@ -118,15 +119,22 @@ struct AnnotationEditGesture {
                       scale: CGFloat, imageSize: CGSize) -> AnnotationElement? {
         elements.last {
             selection.contains($0.id)
-                && (handle(for: $0, at: point, tolerance: 12 * scale) != nil
+                && (handle(for: $0, at: point, tolerance: 12 * scale, scale: scale) != nil
                     || AnnotationGeometry.hit($0, at: point, scale: scale, imageSize: imageSize))
         }
     }
 
+    static func rotationHandle(for element: AnnotationElement, scale: CGFloat = 1) -> CGPoint? {
+        guard element.tool.resizesWithHandles, element.tool != .pixelate, !element.isLocked else { return nil }
+        return CGPoint(x: element.rect.midX, y: element.rect.minY - 24 * scale)
+    }
+
     static func handle(for element: AnnotationElement, at point: CGPoint,
-                       tolerance: CGFloat) -> Handle? {
+                       tolerance: CGFloat, scale: CGFloat = 1) -> Handle? {
         guard !element.isLocked else { return nil }
         let point = point.applying(AnnotationGeometry.transform(element).inverted())
+        if let rotation = rotationHandle(for: element, scale: scale),
+           hypot(point.x - rotation.x, point.y - rotation.y) <= tolerance { return .rotate }
         if element.tool == .arrow || element.tool == .line {
             if let index = element.points.indices.first(where: {
                 hypot(element.points[$0].x - point.x, element.points[$0].y - point.y) <= tolerance
@@ -153,6 +161,12 @@ struct AnnotationEditGesture {
         guard !original.isLocked else { return original }
         var result = original
         switch handle {
+        case .rotate:
+            guard original.tool != .pixelate else { return original }
+            let center = CGPoint(x: original.rect.midX, y: original.rect.midY)
+            guard hypot(point.x - center.x, point.y - center.y) > 0.001 else { return original }
+            let initial = atan2(anchor.y - center.y, anchor.x - center.x)
+            result.rotation = original.rotation + atan2(point.y - center.y, point.x - center.x) - initial
         case .midpoint(let segment):
             let split = AnnotationLinear.insertingPoint(in: original, segment: segment)
             guard split.points.count == original.points.count + 1 else { return original }

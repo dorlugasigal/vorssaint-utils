@@ -17,11 +17,19 @@ controls, short-shaft clamping, and automatic click-versus-drag finishing
 policy (4 screen points, latched until release). Creation's existing 45-degree
 Shift constraint remains distinct from the source's 15-degree rotation snap.
 `AnnotationRoughness` adapts its seeded generator and Artist/Cartoonist profile
-metrics to the shared CGContext path pass. Open connector endpoints remain pinned; the
-closed-shape profile uses native corner jitter and small overdraw accents. The
+metrics to the shared CGContext path pass. Open connector endpoints remain pinned. The
 default Architect style preserves Vorssaint's original screenshot geometry.
 Rough geometry is intentionally native to the shared path model rather than
 copying ZoomIt's zoom-dependent rendering and controller machinery.
+
+The closed-shape outline path adapts the paired line and cubic stroke
+construction from [Rough.js `src/renderer.ts`](https://github.com/rough-stuff/rough/blob/master/src/renderer.ts)
+(`_doubleLine`, `_line`, and `_bezierTo`), copyright 2019 Preet Shihn, MIT.
+It uses the existing native seeded generator; no JavaScript runtime or
+Rough.js package dependency is added. Canonical fill and hit boundaries remain
+separate from the independently drawn edge strokes.
+Curved contours preserve shared endpoints, following Excalidraw's
+`continuousPath`/`preserveVertices` setting for rounded shapes.
 
 `SmartDrawRecognizer.swift` retains the MIT-licensed fitting, outlier rejection,
 confidence/stability policy and bounded recognition budget from ZoomIt.
@@ -38,6 +46,7 @@ notice applies to the attributed ZoomIt-derived portions:
 MIT License
 
 Copyright (c) 2026 Microsoft Corporation.
+Copyright (c) 2019 Preet Shihn.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

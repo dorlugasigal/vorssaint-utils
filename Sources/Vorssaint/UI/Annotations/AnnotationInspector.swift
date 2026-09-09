@@ -216,7 +216,7 @@ struct AnnotationInspector: View {
             AnnotationInspectorSection(title: title(.edges),
                                        symbol: "rectangle.roundedtop") {
                 AnnotationVisualChoices(values: [false, true],
-                    selection: Binding(get: { style.roundness > 0 }, set: { style.roundness = $0 ? max(0.25, style.roundness) : 0 }),
+                    selection: Binding(get: { style.roundness > 0 }, set: { style.roundness = $0 ? 0.5 : 0 }),
                     label: { title($0 ? .rounded : .sharp) }, preview: { .edges(rounded: $0) })
             }
         } else if style.shape == .grid {

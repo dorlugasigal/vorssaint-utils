@@ -981,6 +981,25 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         labels.undo()
         expect(labels.strokes == shape, "live label undo preserves its shape")
         labels.closeSession()
+        let handles = ScreenAnnotationService(defaults: defaults)
+        handles.setToolChoice(.shape(.standard))
+        handles.beginStroke(at: CGPoint(x: 50, y: 60), bounds: bounds)
+        handles.finishStroke(at: CGPoint(x: 150, y: 140), bounds: bounds)
+        let originalShape = handles.strokes[0]
+        handles.beginStroke(at: CGPoint(x: 150, y: 140), bounds: bounds)
+        handles.finishStroke(at: CGPoint(x: 180, y: 160), bounds: bounds)
+        expect(handles.strokes[0].rect.size == CGSize(width: 130, height: 100), "live corner resize changes the shape")
+        handles.undo()
+        expect(handles.strokes[0] == originalShape, "live corner resize undo is atomic")
+        if let point = AnnotationEditGesture.rotationHandle(for: originalShape) {
+            let center = CGPoint(x: originalShape.rect.midX, y: originalShape.rect.midY)
+            handles.beginStroke(at: point, bounds: bounds)
+            handles.finishStroke(at: CGPoint(x: center.x + center.y - point.y, y: center.y), bounds: bounds)
+            expect(abs(handles.strokes[0].rotation - CGFloat.pi / 2) < 0.0001, "live rotation handle rotates the shape")
+            handles.undo()
+            expect(handles.strokes[0] == originalShape, "live rotation undo is atomic")
+        }
+        handles.closeSession()
         labels.setTool(.pen)
         labels.beginStroke(at: CGPoint(x: 200, y: 150), bounds: bounds)
         labels.finishStroke(at: CGPoint(x: 200, y: 150), bounds: bounds)
@@ -1222,7 +1241,15 @@ private final class AnnotationDrawingView: NSView {
                 ctx.setStrokeColor(NSColor.systemBlue.cgColor)
                 ctx.setLineWidth(2)
                 ctx.setLineDash(phase: 0, lengths: [5, 3])
-                ctx.stroke(AnnotationGeometry.visualBounds(stroke).insetBy(dx: -6, dy: -6))
+                if stroke.tool.resizesWithHandles {
+                    ctx.concatenate(AnnotationGeometry.transform(stroke))
+                    ctx.stroke(stroke.rect.insetBy(dx: -3, dy: -3))
+                    if svc.selectedIDs.count == 1 {
+                        AnnotationRenderer.drawLocalResizeHandles(stroke, in: ctx)
+                    }
+                } else {
+                    ctx.stroke(AnnotationGeometry.visualBounds(stroke).insetBy(dx: -6, dy: -6))
+                }
                 if !stroke.isLocked && (stroke.tool == .arrow || stroke.tool == .line) {
                     ctx.concatenate(AnnotationGeometry.transform(stroke))
                     AnnotationRenderer.drawLinearMidpoints(stroke, in: ctx, scale: 1)

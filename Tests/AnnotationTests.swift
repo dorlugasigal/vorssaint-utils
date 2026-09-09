@@ -27,6 +27,7 @@ enum AnnotationTests {
         testFreehand(expect)
         testInteractionFeedback(expect)
         testRoughness(expect)
+        testShapeHandles(expect)
         testSmartDraw(expect)
         testSmartDrawResults(expect)
         testPreferencesAndChannels(expect)
@@ -1211,22 +1212,22 @@ enum AnnotationTests {
         let rect = CGRect(x: 40, y: 40, width: 400, height: 260)
         var sketch = AnnotationElement(tool: .rect, rect: rect,
             style: AnnotationStyle(color: .red, width: 3, character: .cartoonist))
-        var accentCount = 0
-        var maximumSeparation: CGFloat = 0
         for seed: UInt64 in 0..<8 {
             sketch.roughSeed = seed
             let outline = AnnotationGeometry.path(sketch)
             AnnotationPathCache.shared.removeAll()
             expect(outline == AnnotationGeometry.path(sketch), "sketched shape remains deterministic")
-            expect(outline.contains(CGPoint(x: rect.midX, y: rect.midY)), "sketched contours retain fill and interior hit geometry")
+            expect(AnnotationGeometry.shapeBoundary(sketch).contains(CGPoint(x: rect.midX, y: rect.midY)),
+                   "sketched shapes retain a closed canonical fill boundary")
+            expect(AnnotationGeometry.hit(sketch, at: CGPoint(x: rect.midX, y: rect.midY), scale: 1,
+                                          imageSize: CGSize(width: 500, height: 400)), "rough shape interiors remain selectable")
             expect(rect.insetBy(dx: -32, dy: -32).contains(outline.boundingBoxOfPath), "corner overdraw stays bounded")
             let contours = AnnotationPathSampling.polylines(outline)
-            let closed = contours.filter { $0.count > 3 && $0.first == $0.last }
-            expect(closed.count == 2, "sketch retains two closed outlines")
-            if closed.count == 2, let a = closed[0].first, let b = closed[1].first {
-                maximumSeparation = max(maximumSeparation, hypot(a.x - b.x, a.y - b.y))
+            expect(contours.count == 8 && contours.allSatisfy { $0.first != $0.last },
+                   "rough rectangle uses two independent strokes per edge")
+            if contours.count == 8 {
+                expect(contours[0] != contours[1], "edge retraces do not form duplicate rigid outlines")
             }
-            accentCount += contours.filter { $0.first != $0.last }.count
             var current = CGPoint.zero
             var largestBend: CGFloat = 0
             outline.applyWithBlock { pointer in
@@ -1242,10 +1243,27 @@ enum AnnotationTests {
                 default: break
                 }
             }
-            expect(largestBend <= 2.5, "sketched rectangle edges avoid exaggerated lens-shaped bows")
+            expect(largestBend <= 14, "per-edge sketch controls stay close to their own segment")
         }
-        expect(accentCount > 0, "seeded sketch samples include small corner overshoots")
-        expect(maximumSeparation > 7, "rough shape variants have visibly distinct overlaid strokes")
+        var filled = sketch
+        filled.rect = CGRect(x: 20, y: 20, width: 160, height: 160)
+        filled.style?.fill = .solid
+        let pixels = bitmap { AnnotationRenderer.draw(filled, in: $0, scale: 1, shadowsEnabled: false) }
+        expect(pixels?[((100 * 200 + 100) * 4) + 3] == 255, "rough solid fill covers the interior")
+        expect(AnnotationPathSampling.sweptHit(filled, from: CGPoint(x: 80, y: 80), to: CGPoint(x: 100, y: 100),
+                                              tolerance: 2), "eraser can hit inside a filled rough shape")
+        var rounded = sketch
+        rounded.style?.roundness = 0.5
+        let roundedStrokes = AnnotationPathSampling.polylines(AnnotationGeometry.path(rounded))
+        expect(roundedStrokes.count.isMultiple(of: 2), "rounded outline has paired edge strokes")
+        for index in stride(from: 0, to: roundedStrokes.count - 1, by: 2) {
+            expect(roundedStrokes[index].first == roundedStrokes[index + 1].first
+                   && roundedStrokes[index].last == roundedStrokes[index + 1].last,
+                   "rounded retraces share endpoints instead of leaving seams")
+            let next = (index + 2) % roundedStrokes.count
+            expect(roundedStrokes[index].last == roundedStrokes[next].first,
+                   "rounded edges and corners meet continuously")
+        }
         var twice = sketch
         twice.rect = CGRect(x: rect.minX * 2, y: rect.minY * 2, width: rect.width * 2, height: rect.height * 2)
         var doubledTransform = CGAffineTransform(scaleX: 2, y: 2)
@@ -1280,6 +1298,39 @@ enum AnnotationTests {
         for language in AppLanguage.allCases {
             expect(AnnotationStyleStrings.characters(language).count == 4, "rough styles localized for \(language)")
         }
+    }
+
+    private static func testShapeHandles(_ expect: (Bool, String) -> Void) {
+        let shape = AnnotationElement(tool: .rect, rect: CGRect(x: 50, y: 60, width: 100, height: 80))
+        for handle in ScreenshotSupport.Handle.allCases {
+            expect(AnnotationEditGesture.handle(for: shape, at: handle.position(in: shape.rect), tolerance: 1)
+                == .resize(handle), "visible resize handles map to the existing gesture")
+        }
+        guard let point = AnnotationEditGesture.rotationHandle(for: shape) else {
+            expect(false, "rotation handle exists"); return
+        }
+        expect(AnnotationEditGesture.handle(for: shape, at: point, tolerance: 1) == .rotate, "rotation handle is hittable")
+        let center = CGPoint(x: shape.rect.midX, y: shape.rect.midY)
+        let radius = center.y - point.y
+        let rotated = AnnotationEditGesture(original: shape, anchor: point, handle: .rotate)
+            .updated(to: CGPoint(x: center.x + radius, y: center.y))
+        expect(abs(rotated.rotation - CGFloat.pi / 2) < 0.0001 && rotated.rect == shape.rect,
+               "rotation handle rotates around the shape center without resizing")
+        let rotatedHandle = point.applying(AnnotationGeometry.transform(rotated))
+        expect(AnnotationEditGesture.handle(for: rotated, at: rotatedHandle, tolerance: 1) == .rotate,
+               "rotation handle remains hittable after rotating")
+        for corner in [ScreenshotSupport.Handle.topLeft, .topRight, .bottomLeft, .bottomRight] {
+            let world = corner.position(in: rotated.rect).applying(AnnotationGeometry.transform(rotated))
+            expect(AnnotationEditGesture.handle(for: rotated, at: world, tolerance: 1) == .resize(corner),
+                   "rotated visible corners match resize hit targets")
+        }
+        var locked = shape
+        locked.isLocked = true
+        expect(AnnotationEditGesture.rotationHandle(for: locked) == nil, "locked shapes have no rotation handle")
+        expect(AnnotationEditGesture.rotationHandle(for: AnnotationElement(tool: .pixelate, rect: shape.rect)) == nil,
+               "pixelation remains axis aligned")
+        let handles = bitmap { AnnotationRenderer.drawLocalResizeHandles(shape, in: $0) }
+        expect(handles?.contains(where: { $0 != 0 }) == true, "shape handles render")
     }
 
     private static func testSmartDraw(_ expect: (Bool, String) -> Void) {

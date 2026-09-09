@@ -58,18 +58,34 @@ enum AnnotationUIReviewSelfTest {
         render("rough-rectangle-comparison", host: NSHostingController(rootView:
             Canvas { context, _ in
                 context.withCGContext { cg in
-                    for (index, character) in [AnnotationStyle.Character.architect, .cartoonist].enumerated() {
+                    for (index, rounded) in [false, true].enumerated() {
                         var rectangle = AnnotationElement(tool: .rect,
-                            rect: CGRect(x: 30 + index * 430, y: 50, width: 380, height: 240),
-                            style: AnnotationStyle(color: .red, width: 3, character: character))
+                            rect: CGRect(x: 30 + index * 370, y: 50, width: 300, height: 300),
+                            style: AnnotationStyle(color: .red, width: 3, roundness: rounded ? 0.5 : 0, character: .cartoonist))
                         rectangle.roughSeed = 42
                         AnnotationRenderer.draw(rectangle, in: cg, scale: 1, shadowsEnabled: false)
                     }
                 }
-                context.draw(Text("Clean").foregroundColor(.white), at: CGPoint(x: 60, y: 22))
-                context.draw(Text("Updated rough stroke").foregroundColor(.white), at: CGPoint(x: 555, y: 22))
-            }.frame(width: 860, height: 320).background(Color(white: 0.08))),
-               dark: true, maximumWidth: 860)
+                context.draw(Text("Sharp / per-edge strokes").foregroundColor(.white), at: CGPoint(x: 170, y: 22))
+                context.draw(Text("Rounded / per-edge strokes").foregroundColor(.white), at: CGPoint(x: 550, y: 22))
+            }.frame(width: 730, height: 390).background(Color(white: 0.08))),
+               dark: true, maximumWidth: 730)
+        render("selected-shape-handles", host: NSHostingController(rootView:
+            Canvas { context, _ in
+                context.withCGContext { cg in
+                    var shape = AnnotationElement(tool: .rect, rect: CGRect(x: 80, y: 100, width: 250, height: 160),
+                        style: AnnotationStyle(color: .green, width: 3, roundness: 0.5, character: .cartoonist))
+                    shape.rotation = CGFloat.pi / 6
+                    shape.roughSeed = 42
+                    AnnotationRenderer.draw(shape, in: cg, scale: 1, shadowsEnabled: false)
+                    cg.concatenate(AnnotationGeometry.transform(shape))
+                    cg.setStrokeColor(NSColor.systemBlue.cgColor)
+                    cg.setLineWidth(1)
+                    cg.setLineDash(phase: 0, lengths: [5, 3])
+                    cg.stroke(shape.rect.insetBy(dx: -3, dy: -3))
+                    AnnotationRenderer.drawLocalResizeHandles(shape, in: cg)
+                }
+            }.frame(width: 420, height: 360).background(Color(white: 0.08))), dark: true)
         var style = AnnotationStyle(color: .blue, width: 4)
         style.textAlignment = .center
         let editor = AnnotationNativeTextEditor(element: AnnotationElement(tool: .text, text: "Centered",
