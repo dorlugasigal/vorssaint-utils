@@ -220,6 +220,9 @@ struct GlobalShortcut: Equatable, Hashable {
     // layer, matching how the system numbers its own capture keys.
     static let screenRecorderDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_5),
                                                       modifiers: [.control, .option, .command])
+    // A for Annotation, on the same free control-option-command layer.
+    static let screenAnnotationDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_A),
+                                                        modifiers: [.control, .option, .command])
 
     static func saved(for key: String, fallback: GlobalShortcut) -> GlobalShortcut {
         if let raw = UserDefaults.standard.string(forKey: key),
@@ -674,6 +677,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case screenRecorder
     case keyboardBrightnessDecrease
     case keyboardBrightnessIncrease
+    case screenAnnotation
 
     var id: String { storageKey }
 
@@ -704,6 +708,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .screenRecorder: return DefaultsKey.recorderShortcut
         case .keyboardBrightnessDecrease: return DefaultsKey.keyboardBrightnessDecreaseShortcut
         case .keyboardBrightnessIncrease: return DefaultsKey.keyboardBrightnessIncreaseShortcut
+        case .screenAnnotation: return DefaultsKey.screenAnnotationShortcut
         }
     }
 
@@ -734,6 +739,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .screenRecorder: return .screenRecorderDefault
         case .keyboardBrightnessDecrease: return .keyboardBrightnessDecreaseDefault
         case .keyboardBrightnessIncrease: return .keyboardBrightnessIncreaseDefault
+        case .screenAnnotation: return .screenAnnotationDefault
         }
     }
 
@@ -790,6 +796,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
             return FeatureStrings.brightness(L10n.shared.language).keyboardBrightnessDecrease
         case .keyboardBrightnessIncrease:
             return FeatureStrings.brightness(L10n.shared.language).keyboardBrightnessIncrease
+        case .screenAnnotation: return FeatureStrings.annotation(L10n.shared.language).title
         }
     }
 
@@ -837,6 +844,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .screenRecorder: return [DefaultsKey.recorderShortcutEnabled]
         case .keyboardBrightnessDecrease, .keyboardBrightnessIncrease:
             return [DefaultsKey.keyboardBrightnessShortcutsEnabled]
+        case .screenAnnotation: return [DefaultsKey.screenAnnotationShortcutEnabled]
         }
     }
 
@@ -866,6 +874,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .commandBar: return .commandBar
         case .screenRecorder: return .screenRecorder
         case .keyboardBrightnessDecrease, .keyboardBrightnessIncrease: return .brightness
+        case .screenAnnotation: return .screenAnnotation
         }
     }
 
