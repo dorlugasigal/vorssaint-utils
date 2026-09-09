@@ -13,6 +13,7 @@ enum ScreenAnnotationToolbar {
 private struct AnnotationToolbarView: View {
     @ObservedObject var service: ScreenAnnotationService
     @ObservedObject private var localization = L10n.shared
+    @State private var transformsPresented = false
 
     private var presetColors: [AnnotationColor] {
         service.inspectorStyle.isHighlighter ? AnnotationBrush.neonColors
@@ -61,7 +62,8 @@ private struct AnnotationToolbarView: View {
                     .buttonStyle(.borderless)
                 }
                 AnnotationColorControl(color: Binding(get: { service.inspectorStyle.color }, set: service.setColor),
-                                       editingChanged: service.styleEditingChanged)
+                                       editingChanged: service.styleEditingChanged,
+                                       allowsAlpha: service.inspectorTool != .redact)
                     .frame(width: 32, height: 28)
                     .help(FeatureStrings.screenshot(localization.language).colorLabel)
                 Divider().frame(height: 20)
@@ -79,12 +81,26 @@ private struct AnnotationToolbarView: View {
                                 editingChanged: service.styleEditingChanged, tool: service.inspectorTool,
                                 editPoints: service.editLinearPoints, smartDraw: $service.smartDrawEnabled,
                                 showsStrokeColor: false, layoutChanged: service.scheduleToolbarLayout)
+                .disabled(service.selectionIsLocked)
             HStack {
                 if service.hasLinearConstruction {
                     Button(FeatureStrings.screenshot(localization.language).done) { service.finishLinearConstruction() }
                     Button(FeatureStrings.screenshot(localization.language).cancel, action: service.cancelLinearConstruction)
                 }
                 AnnotationSelectionMenu(hasSelection: !service.selectedIDs.isEmpty, perform: service.performSelectionAction)
+                if !service.selectedIDs.isEmpty {
+                    Button { transformsPresented.toggle() } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    }
+                    .help(AnnotationSessionStrings.moreOptions(localization.language))
+                    .disabled(service.selectionIsLocked)
+                    .popover(isPresented: $transformsPresented) {
+                        AnnotationTransformControls(
+                            rotation: Binding(get: { service.selectionRotation }, set: service.rotateSelection),
+                            resize: service.resizeSelection, editingChanged: service.styleEditingChanged)
+                            .padding(12)
+                    }
+                }
                 Button { service.cycleBackground() } label: { Image(systemName: "square.fill") }
                     .help(FeatureStrings.screenshot(localization.language).backdropLabel)
                 Button { service.toggleDrawing() } label: {

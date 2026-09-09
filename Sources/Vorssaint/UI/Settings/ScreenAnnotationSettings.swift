@@ -24,6 +24,7 @@ struct ScreenAnnotationSettings: View {
                 Text(strings.settingsDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle(AnnotationInputStrings.smartDraw(l10n.language), isOn: $annotation.smartDrawEnabled)
                 Toggle(l10n.s.quickToolShortcutToggle, isOn: $shortcutEnabled)
                     .onChange(of: shortcutEnabled) { _, _ in
                         ScreenAnnotationService.shared.syncShortcut()

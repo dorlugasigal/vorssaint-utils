@@ -43,13 +43,20 @@ struct ScreenshotEditorView: View {
                 topBand
                     .padding(.top, 10)
                     .padding(.horizontal, 12)
-                if model.tool != .crop && model.tool != .pixelate
-                    && model.tool != .sticker && model.tool != .counter {
+                if model.inspectorTool != .crop && model.inspectorTool != .pixelate
+                    && model.inspectorTool != .sticker && model.inspectorTool != .counter
+                    && model.inspectorTool != .select {
                     AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
                                         editingChanged: model.styleEditingChanged, tool: model.inspectorTool,
                                         editPoints: model.editLinearPoints, smartDraw: $model.smartDrawEnabled,
                                         allowsHighlighter: true)
+                        .disabled(model.selectionIsLocked)
                         .padding(.horizontal, 12)
+                }
+                if !model.selectedIDs.isEmpty {
+                    AnnotationTransformControls(rotation: Binding(get: { model.selectionRotation }, set: model.rotateSelection),
+                                                resize: model.resizeSelection, editingChanged: model.styleEditingChanged)
+                        .disabled(model.selectionIsLocked)
                 }
                 HStack(spacing: 0) {
                     ScrollView(.vertical) {
@@ -69,6 +76,7 @@ struct ScreenshotEditorView: View {
         }
         .ignoresSafeArea()
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: model.tool)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: model.qrReading)
         .animation(.easeOut(duration: 0.16), value: model.annotationShadowsEnabled)
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: model.backdropStyle)
         .sheet(item: $sharedRecord) { record in
@@ -88,7 +96,11 @@ struct ScreenshotEditorView: View {
                     Button(strings.done) { model.finishLinearConstruction() }
                     Button(strings.cancel) { model.cancelLinearConstruction() }
                 }
-                AnnotationSelectionMenu(hasSelection: !model.selectedIDs.isEmpty, perform: model.performSelectionAction)
+                AnnotationSelectionMenu(hasSelection: !model.selectedIDs.isEmpty) { action in
+                    AnnotationColorPanels.closeCurrent()
+                    commitEditingTextIfNeeded()
+                    model.performSelectionAction(action)
+                }
                 Spacer()
                 actionCluster
             }
@@ -207,14 +219,18 @@ struct ScreenshotEditorView: View {
         }
         .gesture(canvasGesture(zoom: zoom))
         .contextMenu {
-            AnnotationSelectionCommands(hasSelection: !model.selectedIDs.isEmpty, perform: model.performSelectionAction)
+            AnnotationSelectionCommands(hasSelection: !model.selectedIDs.isEmpty) { action in
+                AnnotationColorPanels.closeCurrent()
+                commitEditingTextIfNeeded()
+                model.performSelectionAction(action)
+            }
         }
         .onContinuousHover { phase in
             switch phase {
             case .active(let location):
                 let point = imagePoint(from: location, zoom: zoom)
                 hoverPoint = point
-                model.previewLinear(at: point)
+                model.previewLinear(at: point, constrained: NSEvent.modifierFlags.contains(.shift))
                 updateCursor(zoom: zoom)
             case .ended:
                 hoverPoint = nil
@@ -383,6 +399,7 @@ struct ScreenshotEditorView: View {
             .onChanged { value in
                 let point = imagePoint(from: value.location, zoom: zoom)
                 if !dragInFlight {
+                    AnnotationColorPanels.closeCurrent()
                     dragInFlight = true
                     dragStartView = value.startLocation
                     commitEditingTextIfNeeded()
@@ -390,7 +407,7 @@ struct ScreenshotEditorView: View {
                                     extendingSelection: NSEvent.modifierFlags.contains(.shift))
                     model.continueDrag(to: point)
                 } else {
-                    model.continueDrag(to: point)
+                    model.continueDrag(to: point, constrained: NSEvent.modifierFlags.contains(.shift))
                 }
             }
             .onEnded { value in
@@ -401,9 +418,11 @@ struct ScreenshotEditorView: View {
                                   value.location.y - dragStartView.y) < 7
                 if isTap, model.tool == .text || model.tool == .sticker || model.tool == .counter,
                    !CGRect(origin: .zero, size: model.imageSize).contains(point) {
+                    model.cancelActiveEdit()
                     return
                 }
-                model.endDrag(at: point, isTap: isTap, clickCount: controller.pointerClickCount)
+                model.endDrag(at: point, isTap: isTap, clickCount: controller.pointerClickCount,
+                              constrained: NSEvent.modifierFlags.contains(.shift))
                 if model.editingTextID != nil {
                     editingText = model.annotations.first(where: { $0.id == model.editingTextID })?.text ?? ""
                 }
@@ -544,7 +563,7 @@ struct ScreenshotEditorView: View {
         }
     }
 
-    private func counterBox(_ annotation: ScreenshotSupport.Annotation) -> CGRect {
+    private func counterBox(_ annotation: AnnotationElement) -> CGRect {
         let diameter = ScreenshotSupport.counterDiameter(for: model.imageSize, scale: 1)
         return CGRect(x: annotation.rect.midX - diameter / 2,
                       y: annotation.rect.midY - diameter / 2,
@@ -1044,7 +1063,7 @@ struct ScreenshotEditorView: View {
     }
 
     private func colorDot(_ colorID: ScreenshotSupport.ColorID) -> some View {
-        let selected = model.color == colorID
+        let selected = model.inspectorStyle.color == AnnotationColor(preset: colorID)
         return Button {
             withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
                 model.color = colorID
@@ -1072,7 +1091,9 @@ struct ScreenshotEditorView: View {
 
     /// Line-weight glyphs with three increasing stroke widths.
     private func strokeGlyph(_ stroke: ScreenshotSupport.StrokeID) -> some View {
-        let selected = model.stroke == stroke
+        let selected = model.inspectorTool == .text
+            ? (model.inspectorStyle.textSize ?? model.stroke.fontSize) == stroke.fontSize
+            : model.inspectorStyle.width == stroke.width
         let height: CGFloat = switch stroke {
         case .small: 1.8
         case .medium: 3.4

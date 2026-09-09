@@ -3,7 +3,7 @@
 
 import AppKit
 import Carbon.HIToolbox
-import SwiftUI
+import Combine
 import Vision
 
 /// Everything the annotation editor can do to one capture: the mutable
@@ -11,7 +11,7 @@ import Vision
 /// SwiftUI editor view observes this model; geometry is in image pixels.
 final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     @Published private(set) var baseImage: CGImage
-    @Published var annotations: [ScreenshotSupport.Annotation] = []
+    @Published var annotations: [AnnotationElement] = []
     @Published var selectedIDs: Set<UUID> = []
     var selectedID: UUID? {
         get { annotations.first(where: { selectedIDs.contains($0.id) })?.id }
@@ -21,7 +21,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     @Published var tool: ScreenshotSupport.Tool {
         didSet {
             if tool != oldValue, linearConstruction != nil { cancelLinearConstruction() }
-            UserDefaults.standard.set(tool.rawValue, forKey: DefaultsKey.screenshotLastTool)
+            defaults.set(tool.rawValue, forKey: DefaultsKey.screenshotLastTool)
             if tool != .select { clearTextSelection() }
             if tool != oldValue, tool != .select {
                 selectedID = nil
@@ -44,26 +44,26 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     @Published private(set) var qrReading: BarcodeDetector.Reading?
     @Published var color: ScreenshotSupport.ColorID {
         didSet {
-            UserDefaults.standard.set(color.rawValue, forKey: DefaultsKey.screenshotLastColor)
-            applyStyleToSelection()
+            defaults.set(color.rawValue, forKey: DefaultsKey.screenshotLastColor)
+            applyStyleToSelection(colorChanged: true)
         }
     }
     @Published var stroke: ScreenshotSupport.StrokeID {
         didSet {
-            UserDefaults.standard.set(stroke.rawValue, forKey: DefaultsKey.screenshotLastStroke)
-            applyStyleToSelection()
+            defaults.set(stroke.rawValue, forKey: DefaultsKey.screenshotLastStroke)
+            applyStyleToSelection(strokeChanged: true)
         }
     }
     @Published var sticker: ScreenshotSupport.StickerID {
         didSet {
-            UserDefaults.standard.set(sticker.rawValue,
+            defaults.set(sticker.rawValue,
                                       forKey: DefaultsKey.screenshotLastSticker)
             applyStickerToSelection()
         }
     }
     @Published var annotationShadowsEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(annotationShadowsEnabled,
+            defaults.set(annotationShadowsEnabled,
                                       forKey: DefaultsKey.screenshotAnnotationShadows)
             refreshDirtyState()
         }
@@ -72,7 +72,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// corner sliders), persisted as JSON and applied live on the canvas.
     @Published var backdropStyle: ScreenshotSupport.BackdropStyle {
         didSet {
-            UserDefaults.standard.set(backdropStyle.encoded(),
+            defaults.set(backdropStyle.encoded(),
                                       forKey: DefaultsKey.screenshotBackdropStyle)
             reloadBackdropImageIfNeeded()
             refreshDirtyState()
@@ -81,7 +81,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// Custom backdrops the user chose to keep.
     @Published private(set) var backdropPresets: [ScreenshotSupport.BackdropStyle] {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 ScreenshotSupport.encodedBackdropPresets(backdropPresets),
                 forKey: DefaultsKey.screenshotBackdropPresets)
         }
@@ -105,11 +105,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     @Published private(set) var isDirty = false
 
     let scale: CGFloat
+    private let defaults: UserDefaults
     private(set) var pixelated: CGImage?
 
     private struct Snapshot: Equatable {
         let image: CGImage
-        let annotations: [ScreenshotSupport.Annotation]
+        let annotations: [AnnotationElement]
         let selection: Set<UUID>
         static func == (lhs: Snapshot, rhs: Snapshot) -> Bool {
             lhs.image === rhs.image && lhs.annotations == rhs.annotations
@@ -118,7 +119,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var history = AnnotationHistory<Snapshot>()
     private var snapshot: Snapshot { Snapshot(image: baseImage, annotations: annotations, selection: selectedIDs) }
     private var cleanImage: CGImage?
-    private var cleanAnnotations: [ScreenshotSupport.Annotation] = []
+    private var cleanAnnotations: [AnnotationElement] = []
     private var cleanBackdropStyle = ScreenshotSupport.BackdropStyle()
     private var cleanAnnotationShadowsEnabled = false
 
@@ -135,9 +136,11 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var strokeSampler = AnnotationInputSampler()
     private let smartDraw = AnnotationSmartDraw()
     private var strokeStartTime: TimeInterval = 0
+    private var gestureCancelled = false
+    var hasActiveEdit: Bool { history.isEditing }
     @Published var smartDrawEnabled = false {
         didSet {
-            UserDefaults.standard.set(smartDrawEnabled, forKey: DefaultsKey.screenshotSmartDraw)
+            defaults.set(smartDrawEnabled, forKey: DefaultsKey.screenshotSmartDraw)
             if !smartDrawEnabled { smartDraw.cancel() }
         }
     }
@@ -153,17 +156,23 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var dragRegistered = false
     private var editingSelectedAnnotation = false
     private var newTextID: UUID?
-    private var annotationStyleDefaults: AnnotationStyle?
-    private var freehandStyleDefaults: AnnotationStyle?
-    private var linearStyleDefaults: [ScreenshotSupport.Tool: AnnotationStyle] = [:]
+    private var toolStyles: [String: AnnotationStyle] = [:]
+    private var annotationStyleDefaults: AnnotationStyle? {
+        get { toolStyles[tool.rawValue] }
+        set {
+            toolStyles[tool.rawValue] = newValue
+            persistToolStyles()
+        }
+    }
+
+    private func persistToolStyles() {
+        AnnotationStylePreferences.save(toolStyles, defaults: defaults, key: DefaultsKey.screenshotAnnotationStyles)
+    }
 
     var creationStyle: AnnotationStyle {
-        if tool == .freehand, let freehandStyleDefaults { return freehandStyleDefaults }
-        let base = annotationStyleDefaults ?? AnnotationElement(tool: tool, color: color, stroke: stroke).resolvedStyle
-        if tool == .arrow || tool == .line {
-            return linearStyleDefaults[tool] ?? AnnotationLinear.creationStyle(for: tool, base: base)
-        }
-        return base
+        if let style = annotationStyleDefaults { return style }
+        return AnnotationLinear.creationStyle(for: tool,
+            base: AnnotationElement(tool: tool, color: color, stroke: stroke).resolvedStyle)
     }
 
     var shapeGhost: AnnotationElement? {
@@ -176,6 +185,29 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
     var inspectorTool: ScreenshotSupport.Tool {
         annotations.first(where: { $0.id == selectedID })?.tool ?? tool
+    }
+    func canEditLinearPoints(_ insert: Bool) -> Bool {
+        AnnotationLinear.canEditPoints(insert, in: annotations, selection: selectedIDs)
+    }
+    var selectionIsLocked: Bool {
+        !selectedIDs.isEmpty && annotations.filter { selectedIDs.contains($0.id) }.allSatisfy(\.isLocked)
+    }
+    var selectionRotation: Double {
+        annotations.first(where: { selectedIDs.contains($0.id) }).map { AnnotationSelection.rotation(of: $0) * 180 / .pi } ?? 0
+    }
+
+    func rotateSelection(_ degrees: Double) {
+        transformSelection(rotation: (degrees - selectionRotation) * .pi / 180, factor: 1)
+    }
+
+    func resizeSelection(_ factor: Double) { transformSelection(rotation: 0, factor: factor) }
+
+    private func transformSelection(rotation: Double, factor: Double) {
+        var state = AnnotationDocument.Snapshot(elements: annotations, selection: selectedIDs)
+        AnnotationSelection.transform(&state, rotation: rotation, factor: factor)
+        guard state.elements != annotations else { return }
+        registerUndo()
+        annotations = state.elements
     }
 
     func selectShape(_ shape: AnnotationStyle.Shape) {
@@ -196,6 +228,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
 
     func setInspectorStyle(_ value: AnnotationStyle) {
         let style = value.sanitized()
+        let previous = inspectorStyle
         if selectedID != nil {
             let indexes = annotations.indices.filter {
                 selectedIDs.contains(annotations[$0].id) && !annotations[$0].isLocked
@@ -204,7 +237,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             guard !indexes.isEmpty else { return }
             registerUndo()
             for index in indexes {
-                annotations[index].style = style
+                annotations[index].style = annotations[index].resolvedStyle.applyingChanges(from: previous, to: style)
                 if !style.bindEndpoints { annotations[index].startBinding = nil; annotations[index].endBinding = nil }
                 if annotations[index].tool == .text {
                     annotations[index].rect = AnnotationRenderer.textBounds(annotations[index], scale: scale)
@@ -212,9 +245,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             }
             AnnotationBindings.finishEdit(selectedIDs, elements: &annotations, tolerance: 14 * scale)
         } else {
-            if tool == .freehand { freehandStyleDefaults = style }
-            else if tool == .arrow || tool == .line { linearStyleDefaults[tool] = style }
-            else { annotationStyleDefaults = style }
+            annotationStyleDefaults = style
             objectWillChange.send()
         }
     }
@@ -228,10 +259,11 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         CGSize(width: CGFloat(baseImage.width) / scale, height: CGFloat(baseImage.height) / scale)
     }
 
-    init(image: CGImage, scale: CGFloat) {
+    init(image: CGImage, scale: CGFloat, defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         baseImage = image
         self.scale = scale
-        let defaults = UserDefaults.standard
+        toolStyles = AnnotationStylePreferences.load(defaults: defaults, key: DefaultsKey.screenshotAnnotationStyles)
         smartDrawEnabled = defaults.bool(forKey: DefaultsKey.screenshotSmartDraw)
         var lastTool = ScreenshotSupport.Tool(
             rawValue: defaults.string(forKey: DefaultsKey.screenshotLastTool) ?? "") ?? .arrow
@@ -437,9 +469,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             let reading = BarcodeDetector.read(image)
             DispatchQueue.main.async { [weak self] in
                 guard let self, image === self.baseImage else { return }
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    self.qrReading = reading
-                }
+                self.qrReading = reading
             }
         }
     }
@@ -470,6 +500,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
 
     func undo() {
         smartDraw.cancel()
+        if editingTextID != nil { cancelTextEditing(); return }
         if linearConstruction != nil { cancelLinearConstruction(); return }
         guard let last = history.undo(snapshot) else { return }
         restore(last)
@@ -477,6 +508,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
 
     func redo() {
         smartDraw.cancel()
+        if editingTextID != nil { cancelTextEditing(); return }
         if linearConstruction != nil { cancelLinearConstruction(); return }
         guard let next = history.redo(snapshot) else { return }
         restore(next)
@@ -532,26 +564,40 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     // MARK: - Selection styling
 
     /// Applies color or thickness changes to the selected annotation.
-    private func applyStyleToSelection() {
-        guard let selectedID,
-              let index = annotations.firstIndex(where: { $0.id == selectedID && !$0.isLocked })
-        else { return }
-        guard annotations[index].color != color || annotations[index].stroke != stroke else { return }
-        registerUndo()
-        annotations[index].color = color
-        annotations[index].stroke = stroke
-        if var style = annotations[index].style {
-            let rgb = color.components
-            style.color = AnnotationColor(red: rgb.red, green: rgb.green, blue: rgb.blue)
-            style.width = stroke.width
-            annotations[index].style = style
+    private func applyStyleToSelection(colorChanged: Bool = false, strokeChanged: Bool = false) {
+        let rgb = color.components
+        let newColor = AnnotationColor(red: rgb.red, green: rgb.green, blue: rgb.blue)
+        if selectedIDs.isEmpty {
+            if var style = annotationStyleDefaults {
+                if colorChanged { style.color = newColor }
+                if strokeChanged { style.width = stroke.width }
+                annotationStyleDefaults = style
+            }
+            return
         }
-        if annotations[index].tool == .text {
-            annotations[index].rect = ScreenshotRenderer.textBounds(
-                annotations[index].text,
-                at: annotations[index].rect.origin,
-                stroke: stroke,
-                scale: scale)
+        let indexes = annotations.indices.filter {
+            selectedIDs.contains(annotations[$0].id) && !annotations[$0].isLocked
+                && ((colorChanged && annotations[$0].resolvedStyle.color != newColor)
+                    || (strokeChanged && annotations[$0].resolvedStyle.width != stroke.width)
+                    || (strokeChanged && annotations[$0].tool == .text
+                        && (annotations[$0].resolvedStyle.textSize ?? annotations[$0].stroke.fontSize) != stroke.fontSize))
+        }
+        guard !indexes.isEmpty else { return }
+        registerUndo()
+        for index in indexes {
+            if colorChanged { annotations[index].color = color }
+            if strokeChanged { annotations[index].stroke = stroke }
+            if var style = annotations[index].style {
+                if colorChanged { style.color = newColor }
+                if strokeChanged {
+                    style.width = stroke.width
+                    if annotations[index].tool == .text { style.textSize = nil }
+                }
+                annotations[index].style = style
+            }
+            if annotations[index].tool == .text {
+                annotations[index].rect = AnnotationRenderer.textBounds(annotations[index], scale: scale)
+            }
         }
     }
 
@@ -569,12 +615,13 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
 
     func beginDrag(at point: CGPoint, extendingSelection: Bool = false) {
         cancelledLinearPointer = false
+        gestureCancelled = false
         smartDraw.cancel()
         strokeStartTime = ProcessInfo.processInfo.systemUptime
         if linearConstruction != nil {
-            linearConstruction?.beginPointer(at: point, constrained: NSEvent.modifierFlags.contains(.shift),
+            linearConstruction?.beginPointer(at: point, constrained: extendingSelection,
                                               viewScale: currentDisplayZoom)
-            previewLinear(at: point)
+            previewLinear(at: point, constrained: extendingSelection)
             return
         }
         history.begin(snapshot)
@@ -614,7 +661,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         case .arrow, .line:
             registerUndo()
             dragRegistered = true
-            let annotation = ScreenshotSupport.Annotation(
+            let annotation = AnnotationElement(
                 tool: tool, points: [point, point], color: color, stroke: stroke, style: creationStyle)
             annotations.append(annotation)
             draftID = annotation.id
@@ -622,18 +669,21 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         case .freehand:
             registerUndo()
             dragRegistered = true
-            var annotation = ScreenshotSupport.Annotation(
-                tool: tool, color: color, stroke: stroke, style: freehandStyleDefaults ?? annotationStyleDefaults)
+            var annotation = AnnotationElement(
+                tool: tool, color: color, stroke: stroke, style: annotationStyleDefaults)
             strokeSampler = AnnotationInputSampler()
-            annotation.appendFreehand(strokeSampler.sample(point, timestamp: NSApp?.currentEvent?.timestamp ?? 0,
-                hardwarePressure: nil, mode: annotation.resolvedStyle.pressure))
+            let event = NSApp?.currentEvent
+            let hardware = event?.subtype == .tabletPoint ? event.map { CGFloat($0.pressure) } : nil
+            annotation.appendFreehand(strokeSampler.sample(point, timestamp: event?.timestamp ?? 0,
+                hardwarePressure: hardware, mode: annotation.resolvedStyle.pressure,
+                coordinateScale: 1 / max(currentDisplayZoom, 0.001)))
             annotations.append(annotation)
             draftID = annotation.id
         case .rect, .ellipse, .highlight, .pixelate, .redact:
             if tool == .pixelate { ensurePixelated() }
             registerUndo()
             dragRegistered = true
-            let annotation = ScreenshotSupport.Annotation(
+            let annotation = AnnotationElement(
                 tool: tool, rect: CGRect(origin: point, size: .zero),
                 color: color, stroke: stroke, style: annotationStyleDefaults)
             annotations.append(annotation)
@@ -653,8 +703,19 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
                 return
             }
         }
-        if let hit = hitTest(point), !selectedIDs.contains(hit) { selectedID = hit }
-        else if hitTest(point) == nil { selectedID = nil }
+        guard let hitID = hitTest(point) else {
+            marqueeSelection = additiveSelection ? selectedIDs : []
+            selectedIDs = marqueeSelection
+            if let word = wordIndex(at: point) {
+                selectedIDs = []
+                textSelectionAnchor = point
+                selectedWordIndexes = [word]
+            } else {
+                selectionMarquee = CGRect(origin: point, size: .zero)
+            }
+            return
+        }
+        if !selectedIDs.contains(hitID) { selectedID = hitID }
         if let selectedID, let hit = annotations.first(where: { $0.id == selectedID }) {
             if hit.tool == .sticker {
                 self.selectedID = nil
@@ -675,10 +736,10 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         }
     }
 
-    func continueDrag(to point: CGPoint, final: Bool = false) {
-        guard !cancelledLinearPointer else { return }
+    func continueDrag(to point: CGPoint, final: Bool = false, constrained: Bool = false) {
+        guard !gestureCancelled && !cancelledLinearPointer else { return }
         defer { AnnotationBindings.resolve(&annotations) }
-        if linearConstruction != nil { previewLinear(at: point); return }
+        if linearConstruction != nil { previewLinear(at: point, constrained: constrained); return }
         if editingSelectedAnnotation {
             continueSelectDrag(to: point)
             return
@@ -710,7 +771,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             let hardware = event?.subtype == .tabletPoint ? event.map { CGFloat($0.pressure) } : nil
             let mode = annotations.first(where: { $0.id == draftID })?.resolvedStyle.pressure ?? .constant
             let samples = strokeSampler.sample(point, timestamp: event?.timestamp ?? ProcessInfo.processInfo.systemUptime,
-                hardwarePressure: hardware, mode: mode, final: final)
+                hardwarePressure: hardware, mode: mode, final: final, coordinateScale: 1 / max(currentDisplayZoom, 0.001))
             updateDraft { $0.appendFreehand(samples) }
             if smartDrawEnabled, let element = annotations.first(where: { $0.id == draftID }),
                !element.resolvedStyle.isHighlighter {
@@ -755,13 +816,14 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// `isTap` is decided by the view in screen points, so a click stays a
     /// click at any zoom level; deciding it here in image pixels made taps
     /// on zoomed-out Retina captures read as drags (the text tool bug).
-    func endDrag(at point: CGPoint, isTap: Bool, clickCount: Int = 1) {
-        if cancelledLinearPointer {
+    func endDrag(at point: CGPoint, isTap: Bool, clickCount: Int = 1, constrained: Bool = false) {
+        if cancelledLinearPointer || gestureCancelled {
             cancelledLinearPointer = false
+            gestureCancelled = false
             return
         }
         if linearConstruction != nil {
-            let finish = linearConstruction?.release(at: point, constrained: NSEvent.modifierFlags.contains(.shift),
+            let finish = linearConstruction?.release(at: point, constrained: constrained,
                 viewScale: currentDisplayZoom, clickCount: clickCount) == true
             updateLinearPreview()
             if finish { finishLinearConstruction(commitPreview: false) }
@@ -795,7 +857,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             annotations[index] = AnnotationLinear.removingPoint(in: gesture.original, index: vertex)
         } else if isTap, let gesture = annotationGesture, case .midpoint = gesture.handle {
             continueSelectDrag(to: point)
-        } else if !isTap { continueDrag(to: point, final: true) }
+        } else if !isTap { continueDrag(to: point, final: true, constrained: constrained) }
         if editingSelectedAnnotation {
             finishSelectDrag(at: point, isTap: isTap)
             return
@@ -805,9 +867,10 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             guard isTap else { return }
             if selectExistingAnnotation(at: point) { return }
             registerUndo()
-            var annotation = ScreenshotSupport.Annotation(
-                tool: .text, color: color, stroke: stroke, style: annotationStyleDefaults)
-            annotation.rect = ScreenshotRenderer.textBounds("", at: point, stroke: stroke, scale: scale)
+            var annotation = AnnotationElement(
+                tool: .text, rect: CGRect(origin: point, size: .zero),
+                color: color, stroke: stroke, style: annotationStyleDefaults)
+            annotation.rect = AnnotationRenderer.textBounds(annotation, scale: scale)
             annotations.append(annotation)
             newTextID = annotation.id
             selectedID = annotation.id
@@ -818,7 +881,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             registerUndo()
             let bounds = CGRect(origin: .zero, size: imageSize)
             let side = ScreenshotSupport.stickerSide(for: imageSize, scale: scale)
-            let annotation = ScreenshotSupport.Annotation(
+            let annotation = AnnotationElement(
                 tool: .sticker,
                 rect: ScreenshotSupport.stickerRect(centeredAt: point,
                                                      side: side,
@@ -832,7 +895,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             guard isTap else { return }
             if selectExistingAnnotation(at: point) { return }
             registerUndo()
-            let annotation = ScreenshotSupport.Annotation(
+            let annotation = AnnotationElement(
                 tool: .counter,
                 rect: CGRect(x: point.x, y: point.y, width: 0, height: 0),
                 color: color, stroke: stroke, number: 1)
@@ -862,22 +925,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// The visible selection remains directly editable after creation. A new
     /// tool or a gesture outside it ends that priority and creates normally.
     func selectedAnnotationOwns(_ point: CGPoint) -> Bool {
-        guard let selectedID,
-              let selected = annotations.first(where: { $0.id == selectedID })
-        else { return false }
-        let tolerance = 12 * scale
-        if AnnotationEditGesture.handle(for: selected, at: point, tolerance: tolerance) != nil { return true }
-        if selected.tool.resizesWithHandles,
-           ScreenshotSupport.handle(at: point, rect: selected.rect,
-                                    tolerance: tolerance) != nil {
-            return true
-        }
-        if selected.points.prefix(2).contains(where: {
-            hypot(point.x - $0.x, point.y - $0.y) < tolerance
-        }) {
-            return true
-        }
-        return hitTest(point) == selectedID
+        AnnotationEditGesture.owner(at: point, in: annotations, selection: selectedIDs,
+                                    scale: scale, imageSize: imageSize) != nil
     }
 
     private func finishSelectDrag(at point: CGPoint, isTap: Bool) {
@@ -887,7 +936,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         selectedID = hitTest(point)
         if let selectedID,
            let hit = annotations.first(where: { $0.id == selectedID }),
-           hit.tool == .text {
+           hit.tool == .text, !hit.isLocked {
             editingTextID = selectedID
         } else if selectedID == nil, let word = wordIndex(at: point) {
             selectedWordIndexes = [word]
@@ -913,7 +962,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             sticker = ScreenshotSupport.StickerID.sanitized(hit.text)
         }
         selectedID = hitID
-        editingTextID = hit.tool == .text ? hitID : nil
+        editingTextID = hit.tool == .text && !hit.isLocked ? hitID : nil
         clearTextSelection()
         tool = .select
         return true
@@ -931,8 +980,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         }
     }
 
-    func previewLinear(at point: CGPoint) {
-        linearConstruction?.updatePreview(at: point, constrained: NSEvent.modifierFlags.contains(.shift),
+    func previewLinear(at point: CGPoint, constrained: Bool = false) {
+        linearConstruction?.updatePreview(at: point, constrained: constrained,
                                            viewScale: currentDisplayZoom)
         updateLinearPreview()
     }
@@ -997,7 +1046,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         annotations = updated
     }
 
-    private func updateDraft(_ mutate: (inout ScreenshotSupport.Annotation) -> Void) {
+    private func updateDraft(_ mutate: (inout AnnotationElement) -> Void) {
         guard let draftID,
               let index = annotations.firstIndex(where: { $0.id == draftID })
         else { return }
@@ -1058,9 +1107,23 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     func cancelTextEditing() {
+        cancelActiveEdit()
+    }
+
+    func cancelActiveEdit() {
+        smartDraw.cancel()
         if let original = history.cancel() { restore(original) }
         editingTextID = nil
         newTextID = nil
+        draftID = nil
+        linearConstruction = nil
+        annotationGesture = nil
+        groupGestures.removeAll()
+        selectionMarquee = nil
+        textSelectionAnchor = nil
+        activeHandle = nil
+        dragRegistered = false
+        gestureCancelled = true
     }
 
     func applyCrop() {
@@ -1094,6 +1157,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             moved.points = annotation.points.map {
                 CGPoint(x: $0.x - cropRect.minX, y: $0.y - cropRect.minY)
             }
+            moved.controls = annotation.controls.map {
+                CGPoint(x: $0.x - cropRect.minX, y: $0.y - cropRect.minY)
+            }
             return moved
         }
         if annotations.contains(where: { $0.tool == .pixelate }) {
@@ -1109,10 +1175,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     // MARK: - Output
 
     func exportImage(withBackdrop: Bool = true) -> CGImage? {
+        if hasLinearConstruction { finishLinearConstruction() }
+        smartDraw.cancel()
         if annotations.contains(where: { $0.tool == .pixelate }) {
             ensurePixelated()
         }
-        let downscale = UserDefaults.standard.bool(forKey: DefaultsKey.screenshotDownscale)
+        let downscale = defaults.bool(forKey: DefaultsKey.screenshotDownscale)
         return ScreenshotRenderer.renderExport(
             baseImage: baseImage,
             annotations: AnnotationInteractionFeedback.committed(annotations, draftID: draftID),
@@ -1156,16 +1224,14 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        ScreenAnnotationService.shared.yieldDrawingInput()
         let screen = NSScreen.pointerVisibleFrame
         let minimumSize = ScreenshotSupport.editorMinimumContentSize(visibleSize: screen.size)
         // The hosting view rewrites the window's size limits on its first
         // layout pass, so a contentMinSize set on the window is silently
         // lost. Declare the minimum on the hosted view and track just that:
         // the hosting controller then maintains contentMinSize itself.
-        let content = ScreenshotEditorView(model: model, controller: self)
-            .frame(minWidth: minimumSize.width, minHeight: minimumSize.height)
-        let host = NSHostingController(rootView: content)
-        host.sizingOptions = [.minSize]
+        let host = ScreenshotEditorHost.makeController(model: model, controller: self, minimumSize: minimumSize)
         let window = NSWindow(contentViewController: host)
         // One continuous surface: the canvas fills the window and the
         // controls float over it, so the editor reads as a single object.
@@ -1309,6 +1375,8 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
         case kVK_Escape:
             if model.cancelLinearConstruction() {
                 return true
+            } else if model.hasActiveEdit {
+                model.cancelActiveEdit()
             } else if model.tool == .crop, model.cropDraft != nil {
                 model.tool = .select
             } else if !model.selectedWordIndexes.isEmpty {
@@ -1521,7 +1589,7 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
     // MARK: NSWindowDelegate
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard model.isDirty else { return true }
+        guard model.isDirty || model.editingTextID != nil else { return true }
         let alert = NSAlert()
         alert.messageText = strings.discardTitle
         alert.informativeText = strings.discardMessage
@@ -1532,6 +1600,8 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        AnnotationColorPanels.close(owner: window)
+        model.cancelActiveEdit()
         if let scrollMonitor {
             NSEvent.removeMonitor(scrollMonitor)
             self.scrollMonitor = nil

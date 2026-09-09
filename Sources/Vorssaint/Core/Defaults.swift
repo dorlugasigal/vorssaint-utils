@@ -589,6 +589,8 @@ enum DefaultsKey {
     static let recorderShortcut = "recorderShortcut"
     static let screenAnnotationTool = "screenAnnotationTool"
     static let screenAnnotationSmartDraw = "screenAnnotationSmartDraw"
+    static let screenAnnotationStyles = "screenAnnotationStyles"
+    static let screenshotAnnotationStyles = "screenshotAnnotationStyles"
     static let screenshotSmartDraw = "screenshotSmartDraw"
     static let screenAnnotationColor = "screenAnnotationColor"
     static let screenAnnotationWidth = "screenAnnotationWidth"
@@ -1299,6 +1301,8 @@ enum Defaults {
         DefaultsKey.recorderShortcut: GlobalShortcut.screenRecorderDefault.storageValue,
         DefaultsKey.screenAnnotationTool: AnnotationTool.pen.rawValue,
         DefaultsKey.screenAnnotationSmartDraw: false,
+        DefaultsKey.screenAnnotationStyles: "{}",
+        DefaultsKey.screenshotAnnotationStyles: "{}",
         DefaultsKey.screenshotSmartDraw: false,
         DefaultsKey.screenAnnotationColor: "red",
         DefaultsKey.screenAnnotationWidth: ScreenAnnotationSupport.defaultWidth,

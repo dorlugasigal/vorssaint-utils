@@ -4,8 +4,9 @@
 // Copyright (c) 2026 Microsoft Corporation. MIT: docs/ANNOTATION-PROVENANCE.md
 
 import CoreGraphics
+import Foundation
 
-enum AnnotationArrowhead: Int, CaseIterable {
+enum AnnotationArrowhead: Int, Codable, CaseIterable {
     case legacy, none, arrow, triangle, triangleOutline, circle, circleOutline
     case bar, diamond, diamondOutline, crowFoot, oneOrMany, zeroOrOne, zeroOrMany
 
@@ -89,6 +90,15 @@ enum AnnotationLinear {
         CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
     }
 
+    private static let cacheLock = NSLock()
+    private static var headCache: [UUID: (revision: UUID, scale: CGFloat, paths: [(CGPath, Bool)])] = [:]
+
+    static func canEditPoints(_ insert: Bool, in elements: [AnnotationElement], selection: Set<UUID>) -> Bool {
+        elements.contains {
+            selection.contains($0.id) && !$0.isLocked && ($0.tool == .arrow || $0.tool == .line)
+                && $0.points.count >= (insert ? 2 : 3)
+        }
+    }
     static func editPoints(_ insert: Bool, in element: inout AnnotationElement) {
         guard !element.isLocked, element.tool == .arrow || element.tool == .line,
               element.points.count >= 2 else { return }
@@ -124,10 +134,10 @@ enum AnnotationLinear {
         return controls
     }
 
-    static func path(_ element: AnnotationElement) -> CGPath {
+    static func path(_ element: AnnotationElement, renderScale: CGFloat = 1) -> CGPath {
         let path = CGMutablePath()
         guard element.points.count >= 2 else { return path }
-        let shaft = shaftGeometry(element)
+        let shaft = shaftGeometry(element, renderScale: renderScale)
         path.move(to: shaft.points[0])
         let controls = controls(shaft)
         for index in 1..<shaft.points.count {
@@ -152,10 +162,11 @@ enum AnnotationLinear {
 
     /// Match ZoomIt's endpoint tangent insets, moving each attached control by
     /// the same delta so shortening the shaft does not change its end tangent.
-    static func shaftGeometry(_ element: AnnotationElement) -> AnnotationElement {
+    static func shaftGeometry(_ element: AnnotationElement, renderScale: CGFloat = 1) -> AnnotationElement {
         guard element.points.count >= 2 else { return element }
         var result = element
         let style = element.resolvedStyle
+        let scale = renderScale.isFinite && renderScale > 0 ? renderScale : 1
         let endHead = style.endHead == .legacy ? (element.tool == .arrow ? AnnotationArrowhead.triangle : .none) : style.endHead
         var directions: [CGPoint] = []
         var insets: [CGFloat] = []
@@ -168,12 +179,12 @@ enum AnnotationLinear {
                                                  y: (tangent.y - tip.y) / length) : .zero
             let limit = max(0, (other.x - tip.x) * direction.x + (other.y - tip.y) * direction.y)
             directions.append(direction)
-            insets.append(min(shaftInset(head, width: style.width, size: style.headSize), limit))
+            insets.append(min(shaftInset(head, width: style.width / scale, size: style.headSize * scale), limit))
         }
         if element.points.count == 2 {
             let length = hypot(element.points[1].x - element.points[0].x,
                                element.points[1].y - element.points[0].y)
-            let maximum = max(0, length - max(1, style.width * 0.5))
+            let maximum = max(0, length - max(scale, style.width * 0.5))
             let total = insets[0] + insets[1]
             if total > maximum {
                 insets = insets.map { $0 * maximum / total }
@@ -209,7 +220,25 @@ enum AnnotationLinear {
     }
 
     static func heads(_ element: AnnotationElement, scale: CGFloat) -> [(CGPath, Bool)] {
-        guard element.points.count >= 2 else { return [] }
+        guard element.points.count >= 2, !usesLegacyArrow(element) else { return [] }
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let cached = headCache[element.id], cached.revision == element.geometryRevision, cached.scale == scale {
+            return cached.paths
+        }
+        let paths = uncachedHeads(element, scale: scale)
+        if headCache.count >= 256 && headCache[element.id] == nil { headCache.removeAll() }
+        headCache[element.id] = (element.geometryRevision, scale, paths)
+        return paths
+    }
+
+    static func clearHeadCache() {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        headCache.removeAll()
+    }
+
+    private static func uncachedHeads(_ element: AnnotationElement, scale: CGFloat) -> [(CGPath, Bool)] {
         let style = element.resolvedStyle
         let endpoints = [
             (style.startHead, element.points[0], endpointAdjacent(element, atStart: true)),
@@ -219,7 +248,7 @@ enum AnnotationLinear {
         return endpoints.compactMap { head, tip, adjacent in
             guard head != .none && head != .legacy,
                   hypot(tip.x - adjacent.x, tip.y - adjacent.y) > 0.000_001 else { return nil }
-            let canonical = headPath(head, tip: tip, adjacent: adjacent, width: style.width * scale, size: style.headSize)
+            let canonical = headPath(head, tip: tip, adjacent: adjacent, width: style.width, size: style.headSize * scale)
             let rough = AnnotationRoughness.path(canonical, character: style.character,
                     seed: element.roughSeed ^ UInt64(head.rawValue), width: style.width * scale, scale: scale)
             var transform = AnnotationGeometry.transform(element)

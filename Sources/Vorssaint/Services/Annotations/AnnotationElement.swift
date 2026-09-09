@@ -65,26 +65,18 @@ struct AnnotationElement: Identifiable, Equatable {
         if let style { return style }
         let rgb = color.components
         return AnnotationStyle(color: AnnotationColor(red: rgb.red, green: rgb.green, blue: rgb.blue),
-                               width: stroke.width, textSize: tool == .text ? legacyTextSize : nil)
-    }
-
-    private var legacyTextSize: CGFloat {
-        switch stroke {
-        case .small: return 13
-        case .medium: return 19
-        case .large: return 27
-        }
+                               width: stroke.width, textSize: tool == .text ? stroke.fontSize : nil)
     }
 }
 
-struct AnnotationStyle: Equatable {
-    enum Fill: Int, CaseIterable { case none, solid, hatch, crossHatch }
-    enum Pattern: Int, CaseIterable { case solid, dashed, dotted }
-    enum Shape: Int, CaseIterable { case standard, diamond, database, queue, person, grid, axes }
-    enum FontFamily: Int, CaseIterable { case system, serif, monospace, handwriting }
-    enum Alignment: Int, CaseIterable { case left, center, right }
-    enum Pressure: Int, CaseIterable { case constant, hardware, simulated }
-    enum Character: Int, CaseIterable { case architect, artist, cartoonist }
+struct AnnotationStyle: Codable, Equatable {
+    enum Fill: Int, Codable, CaseIterable { case none, solid, hatch, crossHatch }
+    enum Pattern: Int, Codable, CaseIterable { case solid, dashed, dotted }
+    enum Shape: Int, Codable, CaseIterable { case standard, diamond, database, queue, person, grid, axes }
+    enum FontFamily: Int, Codable, CaseIterable { case system, serif, monospace, handwriting }
+    enum Alignment: Int, Codable, CaseIterable { case left, center, right }
+    enum Pressure: Int, Codable, CaseIterable { case constant, hardware, simulated }
+    enum Character: Int, Codable, CaseIterable { case architect, artist, cartoonist }
     var color: AnnotationColor
     var width: CGFloat
     var opacity: CGFloat = 1
@@ -112,6 +104,40 @@ struct AnnotationStyle: Equatable {
     var character: Character = .architect
     var isHighlighter = false
 
+    func applyingChanges(from previous: AnnotationStyle, to updated: AnnotationStyle) -> AnnotationStyle {
+        var result = self
+        func copy<Value: Equatable>(_ key: WritableKeyPath<AnnotationStyle, Value>) {
+            if previous[keyPath: key] != updated[keyPath: key] { result[keyPath: key] = updated[keyPath: key] }
+        }
+        copy(\.color)
+        copy(\.width)
+        copy(\.opacity)
+        copy(\.smooth)
+        copy(\.textSize)
+        copy(\.mediumTextWeight)
+        copy(\.fill)
+        copy(\.fillColor)
+        copy(\.pattern)
+        copy(\.shape)
+        copy(\.roundness)
+        copy(\.gridRows)
+        copy(\.gridColumns)
+        copy(\.axisTicks)
+        copy(\.axisNegative)
+        copy(\.curved)
+        copy(\.startHead)
+        copy(\.endHead)
+        copy(\.headSize)
+        copy(\.bindEndpoints)
+        copy(\.fontFamily)
+        copy(\.textAlignment)
+        copy(\.boldText)
+        copy(\.pressure)
+        copy(\.character)
+        copy(\.isHighlighter)
+        return result.sanitized()
+    }
+
     func sanitized() -> AnnotationStyle {
         var result = self
         result.gridRows = min(max(gridRows, 1), 12)
@@ -126,6 +152,54 @@ struct AnnotationStyle: Equatable {
         if let textSize { result.textSize = textSize.isFinite ? min(max(textSize, 6), 240) : 19 }
         return result
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case color, width, opacity, smooth, textSize, mediumTextWeight
+        case fill, fillColor, pattern, shape, roundness, gridRows, gridColumns, axisTicks, axisNegative
+        case curved, startHead, endHead, headSize, bindEndpoints
+        case fontFamily, textAlignment, boldText, pressure, character, isHighlighter
+    }
+}
+
+extension AnnotationStyle {
+    // New style fields must not invalidate defaults saved before their introduction.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(color: try values.decode(AnnotationColor.self, forKey: .color),
+                  width: try values.decode(CGFloat.self, forKey: .width))
+        opacity = try values.decodeIfPresent(CGFloat.self, forKey: .opacity) ?? opacity
+        smooth = try values.decodeIfPresent(Bool.self, forKey: .smooth) ?? smooth
+        textSize = try values.decodeIfPresent(CGFloat.self, forKey: .textSize)
+        mediumTextWeight = try values.decodeIfPresent(Bool.self, forKey: .mediumTextWeight) ?? mediumTextWeight
+        fill = try values.decodeIfPresent(Fill.self, forKey: .fill) ?? fill
+        fillColor = try values.decodeIfPresent(AnnotationColor.self, forKey: .fillColor) ?? fillColor
+        pattern = try values.decodeIfPresent(Pattern.self, forKey: .pattern) ?? pattern
+        shape = try values.decodeIfPresent(Shape.self, forKey: .shape) ?? shape
+        roundness = try values.decodeIfPresent(CGFloat.self, forKey: .roundness) ?? roundness
+        gridRows = try values.decodeIfPresent(Int.self, forKey: .gridRows) ?? gridRows
+        gridColumns = try values.decodeIfPresent(Int.self, forKey: .gridColumns) ?? gridColumns
+        axisTicks = try values.decodeIfPresent(Bool.self, forKey: .axisTicks) ?? axisTicks
+        axisNegative = try values.decodeIfPresent(Bool.self, forKey: .axisNegative) ?? axisNegative
+        curved = try values.decodeIfPresent(Bool.self, forKey: .curved) ?? curved
+        startHead = try values.decodeIfPresent(AnnotationArrowhead.self, forKey: .startHead) ?? startHead
+        endHead = try values.decodeIfPresent(AnnotationArrowhead.self, forKey: .endHead) ?? endHead
+        headSize = try values.decodeIfPresent(CGFloat.self, forKey: .headSize) ?? headSize
+        bindEndpoints = try values.decodeIfPresent(Bool.self, forKey: .bindEndpoints) ?? bindEndpoints
+        fontFamily = try values.decodeIfPresent(FontFamily.self, forKey: .fontFamily) ?? fontFamily
+        textAlignment = try values.decodeIfPresent(Alignment.self, forKey: .textAlignment) ?? textAlignment
+        boldText = try values.decodeIfPresent(Bool.self, forKey: .boldText) ?? boldText
+        pressure = try values.decodeIfPresent(Pressure.self, forKey: .pressure) ?? pressure
+        character = try values.decodeIfPresent(Character.self, forKey: .character) ?? character
+        isHighlighter = try values.decodeIfPresent(Bool.self, forKey: .isHighlighter) ?? isHighlighter
+        self = sanitized()
+    }
+}
+
+extension AnnotationColor {
+    init(preset: ScreenshotSupport.ColorID) {
+        let rgb = preset.components
+        self.init(red: rgb.red, green: rgb.green, blue: rgb.blue)
+    }
 }
 
 enum AnnotationGeometry {
@@ -137,7 +211,18 @@ enum AnnotationGeometry {
     }
 
     static func visualBounds(_ element: AnnotationElement) -> CGRect {
-        bounds(element).applying(transform(element))
+        if element.tool == .text || element.tool == .sticker || element.tool == .counter {
+            return bounds(element).applying(transform(element))
+        }
+        let body = path(element)
+        var bounds = body.boundingBoxOfPath.insetBy(dx: -element.resolvedStyle.width / 2,
+                                                   dy: -element.resolvedStyle.width / 2)
+        if element.tool == .arrow || element.tool == .line {
+            for (head, _) in AnnotationLinear.heads(element, scale: 1) {
+                bounds = bounds.union(head.boundingBoxOfPath)
+            }
+        }
+        return bounds
     }
 
     static func bounds(_ element: AnnotationElement) -> CGRect {
@@ -165,10 +250,26 @@ enum AnnotationGeometry {
                 path.addPath(AnnotationDiagramGeometry.path(in: element.rect, style: element.resolvedStyle))
             } else if element.resolvedStyle.shape == .diamond {
                 let rect = element.rect
-                path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-                path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-                path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-                path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
+                let vertices = [CGPoint(x: rect.midX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.midY),
+                                CGPoint(x: rect.midX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.midY)]
+                let cut = min(rect.width, rect.height) * element.resolvedStyle.roundness / 4
+                if cut > 0 {
+                    for index in vertices.indices {
+                        let corner = vertices[index]
+                        let before = vertices[(index + 3) % 4], after = vertices[(index + 1) % 4]
+                        let incomingLength = max(0.001, hypot(before.x - corner.x, before.y - corner.y))
+                        let outgoingLength = max(0.001, hypot(after.x - corner.x, after.y - corner.y))
+                        let incoming = CGPoint(x: corner.x + (before.x - corner.x) * cut / incomingLength,
+                                               y: corner.y + (before.y - corner.y) * cut / incomingLength)
+                        let outgoing = CGPoint(x: corner.x + (after.x - corner.x) * cut / outgoingLength,
+                                               y: corner.y + (after.y - corner.y) * cut / outgoingLength)
+                        if index == 0 { path.move(to: incoming) } else { path.addLine(to: incoming) }
+                        path.addQuadCurve(to: outgoing, control: corner)
+                    }
+                } else {
+                    path.move(to: vertices[0])
+                    for vertex in vertices.dropFirst() { path.addLine(to: vertex) }
+                }
                 path.closeSubpath()
             } else {
                 let radius = element.resolvedStyle.roundness * min(element.rect.width, element.rect.height) / 2
@@ -183,7 +284,7 @@ enum AnnotationGeometry {
                 path.addPath(ScreenshotSupport.arrowSilhouette(
                     from: element.points[0], to: element.points[1],
                     strokeWidth: element.resolvedStyle.width))
-            } else { path.addPath(AnnotationLinear.path(element)) }
+            } else { path.addPath(AnnotationLinear.path(element, renderScale: renderScale)) }
         case .freehand:
             if element.points.count == 1, let point = element.points.first {
                 let pressure = element.resolvedStyle.isHighlighter || element.resolvedStyle.pressure == .constant

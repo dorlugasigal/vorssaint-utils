@@ -4,6 +4,11 @@
 import AppKit
 import SwiftUI
 
+enum AnnotationColorPanels {
+    static func close(owner: NSWindow?) { AnnotationColorControl.Coordinator.close(owner: owner) }
+    static func closeCurrent() { AnnotationColorControl.Coordinator.closeCurrent() }
+}
+
 struct AnnotationInspector: View {
     @Binding var style: AnnotationStyle
     var editingChanged: (Bool) -> Void
@@ -22,7 +27,8 @@ struct AnnotationInspector: View {
         VStack(spacing: 8) {
             HStack(spacing: 10) {
                 if showsStrokeColor {
-                    AnnotationColorControl(color: $style.color, editingChanged: editingChanged)
+                    AnnotationColorControl(color: $style.color, editingChanged: editingChanged,
+                                           allowsAlpha: tool != .redact)
                         .frame(width: 32, height: 28)
                         .help(strings.colorLabel)
                 }
@@ -82,14 +88,18 @@ struct AnnotationInspector: View {
     private var advancedControls: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
-            Image(systemName: "lineweight").help(strings.strokeLabel)
-            Slider(value: $style.width, in: 1...40, onEditingChanged: editingChanged)
-                .frame(width: 60)
-                .accessibilityLabel(strings.strokeLabel)
-            Image(systemName: "circle.lefthalf.filled")
-            Slider(value: $style.opacity, in: 0...1, onEditingChanged: editingChanged)
-                .frame(width: 85)
-                .accessibilityLabel(AnnotationSessionStrings.opacity(localization.language))
+            if tool != .text {
+                Image(systemName: "lineweight").help(strings.strokeLabel)
+                Slider(value: $style.width, in: 1...40, onEditingChanged: editingChanged)
+                    .frame(width: 60)
+                    .accessibilityLabel(strings.strokeLabel)
+            }
+            if tool != .redact {
+                Image(systemName: "circle.lefthalf.filled")
+                Slider(value: $style.opacity, in: 0...1, onEditingChanged: editingChanged)
+                    .frame(width: 85)
+                    .accessibilityLabel(AnnotationSessionStrings.opacity(localization.language))
+            }
             }
             if tool == .rect {
                 HStack {
@@ -98,7 +108,7 @@ struct AnnotationInspector: View {
                         preview: { .shape($0) })
                     Slider(value: $style.roundness, in: 0...1, onEditingChanged: editingChanged)
                         .frame(width: 100)
-                        .disabled(style.shape != .standard)
+                        .disabled(style.shape != .standard && style.shape != .diamond)
                         .accessibilityLabel(AnnotationStyleStrings.roundness(localization.language))
                 }
                 if style.shape == .grid {
@@ -209,45 +219,56 @@ struct AnnotationInspector: View {
 struct AnnotationColorControl: NSViewRepresentable {
     @Binding var color: AnnotationColor
     var editingChanged: (Bool) -> Void
+    var allowsAlpha = true
 
-    func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(title: "", target: context.coordinator, action: #selector(Coordinator.open(_:)))
-        button.bezelStyle = .rounded
-        return button
+    final class Well: NSColorWell {
+        var willActivate: ((Well) -> Bool)?
+        var didActivate: ((Well) -> Void)?
+        var didDeactivate: (() -> Void)?
+
+        override func draw(_ dirtyRect: NSRect) {
+            super.draw(dirtyRect)
+            if let rgb = color.usingColorSpace(.sRGB) {
+                let luminance = (0.2126 * rgb.redComponent + 0.7152 * rgb.greenComponent
+                                 + 0.0722 * rgb.blueComponent) * rgb.alphaComponent
+                    + 0.85 * (1 - rgb.alphaComponent)
+                let ink: NSColor = luminance > 0.5 ? .black : .white
+                NSImage(systemSymbolName: "paintpalette.fill", accessibilityDescription: nil)?
+                    .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [ink]))?
+                    .draw(in: bounds.insetBy(dx: 7, dy: 5))
+            }
+        }
+
+        override func activate(_ exclusive: Bool) {
+            guard willActivate?(self) == true else { return }
+            super.activate(true)
+            didActivate?(self)
+        }
+
+        override func deactivate() {
+            super.deactivate()
+            didDeactivate?()
+        }
     }
 
-    func updateNSView(_ button: NSButton, context: Context) {
+    func makeNSView(context: Context) -> Well {
+        let well = Well(frame: .zero)
+        well.target = context.coordinator
+        well.action = #selector(Coordinator.changed(_:))
+        well.willActivate = { [weak coordinator = context.coordinator] in coordinator?.prepare($0) ?? false }
+        well.didActivate = { [weak coordinator = context.coordinator] in coordinator?.position($0) }
+        well.didDeactivate = { [weak coordinator = context.coordinator] in coordinator?.close() }
+        return well
+    }
+
+    func updateNSView(_ well: Well, context: Context) {
         context.coordinator.control = self
-        let swatchColor = AnnotationRenderer.color(AnnotationStyle(color: color, width: 1))
-        let luminance = (0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue) * color.alpha
-            + 0.85 * (1 - color.alpha)
-        button.image = NSImage(size: NSSize(width: 24, height: 20), flipped: false) { rect in
-            NSGraphicsContext.saveGraphicsState()
-            defer { NSGraphicsContext.restoreGraphicsState() }
-            let outline = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
-            outline.addClip()
-            for row in 0..<3 {
-                for column in 0..<3 {
-                    ((row + column).isMultiple(of: 2) ? NSColor.white : NSColor.lightGray).setFill()
-                    NSRect(x: CGFloat(column) * 8, y: CGFloat(row) * 8, width: 8, height: 8).fill()
-                }
-            }
-            swatchColor.setFill()
-            outline.fill()
-            NSColor.separatorColor.setStroke()
-            outline.lineWidth = 1
-            outline.stroke()
-            let ink: NSColor = luminance > 0.5 ? .black : .white
-            NSImage(systemSymbolName: "paintpalette.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [ink]))?
-                .draw(in: rect.insetBy(dx: 3, dy: 2))
-            return true
-        }
+        context.coordinator.synchronize(well)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(control: self) }
 
-    static func dismantleNSView(_ nsView: NSButton, coordinator: Coordinator) { coordinator.close() }
+    static func dismantleNSView(_ nsView: Well, coordinator: Coordinator) { coordinator.close() }
 
     final class Coordinator: NSObject {
         private static weak var active: Coordinator?
@@ -255,62 +276,113 @@ struct AnnotationColorControl: NSViewRepresentable {
         private weak var owner: NSWindow?
         private var observers: [NSObjectProtocol] = []
         private var panel: NSColorPanel?
+        private weak var well: Well?
+        private var synchronizing = false
+        private var saved: (level: NSWindow.Level, frame: CGRect, color: NSColor,
+                            alpha: Bool, continuous: Bool, mode: NSColorPanel.Mode, parent: NSWindow?)?
 
         init(control: AnnotationColorControl) { self.control = control }
 
-        @objc func open(_ button: NSButton) {
-            guard let owner = button.window, let screen = owner.screen else {
+        static func close(owner: NSWindow?) {
+            if let active, active.owner === owner { active.close() }
+        }
+
+        static func closeCurrent() { active?.close() }
+
+        func synchronize(_ well: Well) {
+            let color = AnnotationRenderer.color(AnnotationStyle(color: control.color, width: 1))
+            guard well.color != color else { return }
+            synchronizing = true
+            well.color = color
+            synchronizing = false
+        }
+
+        func prepare(_ well: Well) -> Bool {
+            guard let owner = well.window, owner.screen != nil else {
                 NSSound.beep()
-                return
+                return false
             }
-            Self.active?.close()
-            // A private panel leaves every other feature's shared color panel
-            // target, action and active wells untouched.
-            let panel = NSColorPanel(contentRect: CGRect(x: 0, y: 0, width: 280, height: 420),
-                                     styleMask: [.titled, .closable, .utilityWindow],
-                                     backing: .buffered, defer: false)
-            panel.isReleasedWhenClosed = false
+            let continuing = Self.active?.owner === owner
+            Self.active?.close(commit: !continuing)
+            let panel = NSColorPanel.shared
+            saved = (panel.level, panel.frame, panel.color, panel.showsAlpha,
+                     panel.isContinuous, panel.mode, panel.parent)
             self.panel = panel
+            self.well = well
             self.owner = owner
             Self.active = self
-            control.editingChanged(true)
+            if !continuing { control.editingChanged(true) }
             panel.parent?.removeChildWindow(panel)
             owner.addChildWindow(panel, ordered: .above)
             panel.level = NSWindow.Level(rawValue: owner.level.rawValue + 1)
-            panel.showsAlpha = true
+            panel.showsAlpha = control.allowsAlpha
             panel.isContinuous = true
-            panel.setTarget(self)
-            panel.setAction(#selector(changed(_:)))
-            panel.color = AnnotationRenderer.color(AnnotationStyle(color: control.color, width: 1))
-            let anchor = owner.convertToScreen(button.convert(button.bounds, to: nil))
-            panel.setFrameOrigin(AnnotationPanelPlacement.origin(anchor: anchor, size: panel.frame.size,
-                                                                 visibleFrame: screen.visibleFrame))
             for window in [owner, panel] {
                 observers.append(NotificationCenter.default.addObserver(
                     forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
                         self?.close()
                     })
             }
-            panel.makeKeyAndOrderFront(nil)
+            for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+                observers.append(NotificationCenter.default.addObserver(
+                    forName: name, object: owner, queue: .main) { [weak self, weak well] _ in
+                        if let well { self?.position(well) }
+                    })
+            }
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSWindow.didResizeNotification, object: panel, queue: .main) { [weak self, weak well] _ in
+                    if let well { self?.position(well) }
+                })
+            observers.append(NotificationCenter.default.addObserver(
+                forName: NSWindow.didMoveNotification, object: panel, queue: .main) { [weak self] _ in
+                    self?.clampPanel()
+                })
+            position(well)
+            return true
         }
 
-        @objc private func changed(_ panel: NSColorPanel) {
-            guard let rgb = panel.color.usingColorSpace(.sRGB) else { NSSound.beep(); return }
+        func position(_ well: Well) {
+            guard let panel, let owner, let screen = owner.screen else { return }
+            let anchor = owner.convertToScreen(well.convert(well.bounds, to: nil))
+            panel.level = NSWindow.Level(rawValue: owner.level.rawValue + 1)
+            panel.setFrameOrigin(AnnotationPanelPlacement.origin(anchor: anchor, size: panel.frame.size,
+                                                                 visibleFrame: screen.visibleFrame))
+        }
+
+        private func clampPanel() {
+            guard let panel, let visible = owner?.screen?.visibleFrame else { return }
+            let origin = CGPoint(x: min(max(panel.frame.minX, visible.minX), max(visible.minX, visible.maxX - panel.frame.width)),
+                                 y: min(max(panel.frame.minY, visible.minY), max(visible.minY, visible.maxY - panel.frame.height)))
+            if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
+        }
+
+        @objc func changed(_ well: NSColorWell) {
+            guard !synchronizing else { return }
+            guard let rgb = well.color.usingColorSpace(.sRGB) else { NSSound.beep(); return }
             control.color = AnnotationColor(red: rgb.redComponent, green: rgb.greenComponent,
                                             blue: rgb.blueComponent, alpha: rgb.alphaComponent)
         }
 
-        func close() {
+        func close(commit: Bool = true) {
             guard let panel else { return }
             self.panel = nil
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
             panel.orderOut(nil)
             panel.parent?.removeChildWindow(panel)
-            panel.setTarget(nil)
-            panel.setAction(nil)
-            panel.close()
-            control.editingChanged(false)
+            well?.deactivate()
+            well = nil
+            if let saved {
+                panel.level = saved.level
+                panel.showsAlpha = saved.alpha
+                panel.isContinuous = saved.continuous
+                panel.mode = saved.mode
+                panel.color = saved.color
+                panel.setFrame(saved.frame, display: false)
+                saved.parent?.addChildWindow(panel, ordered: .above)
+            }
+            saved = nil
+            if commit { control.editingChanged(false) }
             owner?.makeKey()
             owner = nil
             if Self.active === self { Self.active = nil }

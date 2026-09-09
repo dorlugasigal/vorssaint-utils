@@ -1,0 +1,170 @@
+# Shared annotations
+
+Screen annotation extends the live overlay from PR 1518. It uses the same
+annotation elements, paths, paint pass and editing operations as the screenshot
+editor. It does not capture or refresh screenshots of the desktop.
+
+## Live drawing
+
+Invoke the overlay on the display under the pointer. That display owns the
+session until Close; moving the pointer to another display does not move marks.
+Removing the display, changing its frame or changing its backing scale closes
+the session instead of relocating annotations.
+
+Draw captures canvas input. Interact leaves annotations visible and passes
+canvas clicks to the desktop; the toolbar remains clickable. Escape cancels
+an active operation first, then enters Interact. Close clears the session and
+releases its panels, observers and transient state. Sleep, lock and Space
+changes release drawing input.
+Starting another capture or opening a screenshot editor also yields overlay
+input without discarding completed live annotations.
+
+| Key | Live tool/action |
+| --- | --- |
+| V / P / H | Select / Pen / freehand Highlighter |
+| A / L | Arrow / Line |
+| R / O / T | Rectangle / Ellipse / Text |
+| X / E | Solid redact / Eraser |
+| Command-Z / Command-Shift-Z | Undo / Redo |
+| Shift-click | Add or remove objects from selection |
+| Return | Finish a multi-click path |
+| Command-Return | Commit native multiline text |
+| Escape | Cancel editing, then return to Interact |
+
+Drag empty canvas with Select to select enclosed objects. Selected objects
+remain editable while their creation tool stays active. In particular, a
+completed arrow is selected immediately; dragging its vertices or curve
+controls edits that arrow rather than creating another one.
+
+The toolbar moves within its owning display. The inspector edits selected,
+unlocked objects, or the current tool's defaults when nothing is selected.
+Native color wells share AppKit's color panel. It is placed above its owner
+on the same display, and its level, frame, mode, alpha setting, continuous
+setting, color and parent are restored when the annotation picker closes.
+Switching stroke/fill channels in one owner is one undo transaction.
+
+The square background button cycles transparent, white and black. Transparent
+is the default for each new session.
+
+## Rich editing
+
+The inspector exposes diamond as a Rectangle variant, solid/hatch/crosshatch
+fills, dashes, rounded corners, custom RGBA, opacity, widths, font families,
+font size, bold text, alignment, pressure, smoothing and stroke character.
+Architect preserves clean geometry; Artist and Cartoonist use deterministic
+seeded geometry. Redact is always opaque, including when a mixed selection
+receives a translucent color.
+
+Select straight or curved linear routing, then optionally enable multi-click
+construction. Multi-click configures the next path even when an existing
+object is selected; it does not modify that object's style. Click vertices
+and finish with Return or Done; Escape/Cancel
+discards the construction. The point buttons insert or remove an interior
+vertex and are enabled only when the selection has editable vertices.
+Selected vertices and cubic controls can be dragged. Arrow remains
+Arrow when both heads are None. Both ends support the full arrowhead catalog,
+including outlined/filled forms and relationship cardinality markers.
+
+Endpoint bindings are opt-in to preserve existing screenshot placement.
+Endpoints near a shape attach to its stable identity and follow translations,
+resizes and rotations. Deleting a target detaches its connectors without
+jumping their last visible endpoints. Duplicating a target and its connectors
+remaps their bindings to the copies; copying a connector alone detaches its
+external bindings.
+
+The selection menu and canvas context menu provide duplicate/delete,
+group/ungroup, lock/unlock and all four layer actions. Continuous rotation and
+scale controls supplement the incremental menu actions. Locked objects resist
+direct editing. Screenshot pixelation regions remain axis-aligned.
+
+Text uses the same native `NSTextView` bridge in both hosts. Return inserts a
+newline; Command-Return commits. Escape cancels. Whitespace is retained, and
+focus moving to an inspector does not commit the text. Text and style changes
+during an edit share one undo transaction.
+
+Freehand strokes are not capped at 600 points. Input filtering preserves the
+final endpoint and bounds pressure resampling work per event. Geometry caches
+do not retain copies of the input arrays, and unchanged paths and arrowheads
+are reused, including hatch geometry. Each geometry cache has bounded
+retention; this is not a document or stroke-size limit.
+
+Smart Draw is off by default. It recognizes circles, ellipses, squares,
+rectangles, diamonds and arrows using the source fitting and confidence policy.
+Recognition runs on a serial background queue with bounded input, cancellation
+and generation checks. Unsupported or insufficiently confident strokes remain
+freehand. Recognition does not add a second undo step.
+
+## Screenshot compatibility
+
+Existing screenshot tool raw values, order, numbered shortcuts, preset colors,
+stroke widths, arrow silhouette and default smoothing are retained. The
+freehand tool's Highlighter option is distinct from the existing rectangular
+Highlight tool. Diamond and marker variants do not reorder the tool rail.
+
+Crop, pixelate, redact, rectangular highlight, stickers, counters, OCR
+selection, backdrops, import, save/copy/pin/share and canvas navigation remain
+screenshot features. Screenshot pixels and annotation edits have one bounded
+history, not competing image and annotation undo stacks. Crop translates
+vertices and curve controls together and restores the original image on undo.
+
+The screen overlay does not add live blur/pixelation, capture/export commands,
+recording, zoom, webcam, OCR or panorama. Vorssaint's recorder excludes its own
+application windows; the overlay is not a recorder compositing feature.
+Screenshot capture continues to honor its existing own-window exclusion
+preference. Do not assume third-party recording includes overlay redaction.
+
+Existing live tool/RGB/width preference keys remain supported. Additional
+per-tool style defaults use separate live and screenshot keys, with finite
+value sanitization. Smart Draw preferences are likewise host-specific. No
+annotation documents are persisted or synchronized.
+
+## Implementation and coverage
+
+Paths below are relative to `Sources/Vorssaint/` unless prefixed with `Tests/`.
+`Tests/AnnotationTests.swift` is explicitly wired into `build.sh --test`.
+`Support/AnnotationHostSelfTest.swift` is called by the existing `--selftest`
+and uses isolated preference suites without opening application windows.
+
+| Capability | Implementation owner | Automated coverage owner |
+| --- | --- | --- |
+| Display/session/input ownership | `Services/ScreenAnnotation/ScreenAnnotationService.swift` | Display geometry checks in `Tests/MetricsTests.swift`; live data-host selftest |
+| Shared model, rendering and export | `Services/Annotations/AnnotationElement.swift`, `AnnotationRenderer.swift`; `Services/QuickTools/ScreenshotRenderer.swift` | Default screenshot pixel equivalence at 1x/2x in `Tests/AnnotationTests.swift`; host export selftest |
+| Transactions, selection and direct arrow editing | `Services/Annotations/AnnotationDocument.swift`; both host services | `testEditing`; live and screenshot data-host selftests |
+| Inspector, colors and scoped preferences | `UI/Annotations/AnnotationInspector.swift`; `Services/Annotations/AnnotationStylePreferences.swift`, `AnnotationPanelPlacement.swift` | `testPreferencesAndChannels`; placement and finite-value tests |
+| Groups, locks, layers and transforms | `Services/Annotations/AnnotationSelection.swift`; `UI/Annotations/AnnotationSelectionMenu.swift`, `AnnotationTransformControls.swift` | `testSelection`; locked-object host selftests |
+| Shapes, fills, dashes and roundness | Shared geometry/renderer and inspector | `testShapeStyles`; default-renderer pixel regressions |
+| Curves, points, heads and construction | `Services/Annotations/AnnotationLinear.swift` | `testLinear`; screenshot control-editing and construction selftests |
+| Endpoint bindings | `Services/Annotations/AnnotationBindings.swift` | `testBindings` |
+| Native text and typography | `UI/Annotations/AnnotationTextEditor.swift`; shared renderer | `testText`; whitespace/undo host selftests |
+| Pressure, smoothing and eraser sweeps | `Services/Annotations/AnnotationFreehand.swift`, `AnnotationPathSampling.swift` | `testFreehand`; long-marker and eraser host selftests |
+| Deterministic rough geometry | `Services/Annotations/AnnotationRoughness.swift` | `testRoughness`, including scale and seed checks |
+| Smart Draw | `Services/Annotations/SmartDrawRecognizer.swift`, `AnnotationSmartDraw.swift` | `testSmartDraw`, including every shape kind and stale-token policy |
+| Localization/discovery | `Core/Annotation*Strings.swift`, `Core/FeatureStrings.swift`; settings directory | All-current-language catalog coverage and existing settings tests |
+| Screenshot-only workflows | Existing screenshot services and UI | Existing screenshot suite plus crop/image-history/export host selftests |
+
+The existing commands are `./build.sh --test`, `./build.sh` and
+`./build/Vorssaint --selftest`. The unit suite prints comparisons against the
+uncached shared geometry for long strokes and a 200-element scene, and checks
+that unchanged scene paths are not rebuilt.
+
+### Native acceptance still requiring desktop interaction
+
+Automated geometry and data-host checks are not proof of native focus, IME or
+physical display behavior. The implementation work did not launch or install
+the application UI. Before claiming full interactive parity, exercise:
+
+1. Draw/Interact/Close and toolbar reentry on displays to the left, right,
+   above and below the primary display, including mixed scales and negative
+   origins.
+2. Disconnect/resize, lock/sleep, fullscreen Spaces and feature disable with
+   a drag, text editor, color picker or recognition request active.
+3. Native text selection, IME composition, multiline input, keyboard routing,
+   stroke/fill picker switching and focus restoration at monitor edges.
+4. Hardware tablet pressure and end-to-end input latency/memory on long
+   strokes and large scenes; the automated timings measure geometry work,
+   not interactive latency or whole-application memory.
+5. Capture/import, annotate, crop/undo, copy/save/pin/share and recorder
+   coexistence under each existing window-exclusion setting.
+
+Source attribution and the retained MIT notice are in
+[ANNOTATION-PROVENANCE.md](ANNOTATION-PROVENANCE.md).

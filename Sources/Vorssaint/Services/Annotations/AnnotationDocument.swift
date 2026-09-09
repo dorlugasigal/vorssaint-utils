@@ -92,10 +92,11 @@ struct AnnotationDocument {
         if let next = history.redo(state) { state = next }
     }
     mutating func edit(_ body: (inout Snapshot) -> Void) {
+        let continuous = history.isEditing
         begin()
         body(&state)
         state.selection.formIntersection(Set(elements.map(\.id)))
-        commit()
+        if !continuous { commit() }
     }
 }
 
@@ -112,6 +113,15 @@ struct AnnotationEditGesture {
     let original: AnnotationElement
     let anchor: CGPoint
     let handle: Handle
+
+    static func owner(at point: CGPoint, in elements: [AnnotationElement], selection: Set<UUID>,
+                      scale: CGFloat, imageSize: CGSize) -> AnnotationElement? {
+        elements.last {
+            selection.contains($0.id)
+                && (handle(for: $0, at: point, tolerance: 12 * scale) != nil
+                    || AnnotationGeometry.hit($0, at: point, scale: scale, imageSize: imageSize))
+        }
+    }
 
     static func handle(for element: AnnotationElement, at point: CGPoint,
                        tolerance: CGFloat) -> Handle? {

@@ -21,6 +21,7 @@ enum AnnotationTests {
         testInteractionFeedback(expect)
         testRoughness(expect)
         testSmartDraw(expect)
+        testPreferencesAndChannels(expect)
         let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
         for anchor in [CGRect(x: -1900, y: 1100, width: 50, height: 50),
                        CGRect(x: -100, y: 2050, width: 50, height: 50)] {
@@ -326,6 +327,15 @@ enum AnnotationTests {
             }
         }
         expect(Set(rendered).count == 4, "none solid hatch and crosshatch produce distinct fills")
+        let sharpDiamond = AnnotationGeometry.path(diamond)
+        style.roundness = 1
+        diamond.style = style
+        let roundedDiamond = AnnotationGeometry.path(diamond)
+        expect(roundedDiamond != sharpDiamond && roundedDiamond.boundingBoxOfPath.minY > diamond.rect.minY,
+               "diamond roundness changes its actual rendered and hit-test geometry")
+        let roundedBinding = AnnotationBindings.nearest(to: CGPoint(x: diamond.rect.midX, y: diamond.rect.minY),
+                                                        in: [diamond], tolerance: 14)
+        expect((roundedBinding?.anchor.y ?? 0) > 0, "bindings follow the rounded diamond perimeter rather than its clipped corner")
         style.shape = .standard
         style.roundness = 1
         diamond.style = style
@@ -339,6 +349,11 @@ enum AnnotationTests {
     private static func testLinear(_ expect: (Bool, String) -> Void) {
         var element = AnnotationElement(tool: .arrow, points: [CGPoint(x: 20, y: 80), CGPoint(x: 160, y: 80)])
         expect(AnnotationLinear.usesLegacyArrow(element), "default screenshot arrow retains legacy silhouette")
+        expect(!AnnotationLinear.canEditPoints(true, in: [element], selection: []),
+               "point editing is unavailable without a selected line")
+        expect(AnnotationLinear.canEditPoints(true, in: [element], selection: [element.id])
+            && !AnnotationLinear.canEditPoints(false, in: [element], selection: [element.id]),
+               "two-endpoint lines allow insertion but protect their minimum vertex count")
         var style = element.resolvedStyle
         for head in AnnotationArrowhead.allCases {
             for size: CGFloat in [1, 1.35, 1.75] {
@@ -351,6 +366,13 @@ enum AnnotationTests {
                 for (path, _) in AnnotationLinear.heads(element, scale: 1) {
                     expect(!path.isEmpty && path.boundingBoxOfPath.minX.isFinite,
                            "arrowhead has finite nonempty geometry")
+                }
+                if let head1 = AnnotationLinear.heads(element, scale: 1).first?.0 {
+                    var doubled = element
+                    doubled.points = element.points.map { CGPoint(x: $0.x * 2, y: $0.y * 2) }
+                    let head2 = AnnotationLinear.heads(doubled, scale: 2).first?.0
+                    expect(abs((head2?.boundingBoxOfPath.height ?? 0) - head1.boundingBoxOfPath.height * 2) < 0.001,
+                           "arrowhead \(head) size \(size) preserves logical dimensions at Retina scale")
                 }
             }
         }
@@ -639,6 +661,9 @@ enum AnnotationTests {
         AnnotationBindings.attach(&arrow, in: [shape], tolerance: 14)
         expect(arrow.startBinding?.targetID == shape.id && arrow.endBinding == nil,
                "only nearby endpoint attaches to a shape")
+        let overlapping = AnnotationElement(tool: .rect, rect: shape.rect)
+        AnnotationBindings.attach(&arrow, in: [shape, overlapping], tolerance: 14)
+        expect(arrow.startBinding?.targetID == shape.id, "existing bindings do not jump to overlapping new targets")
         var document = AnnotationDocument()
         document.edit { $0.elements = [shape, arrow] }
         document.begin()
@@ -876,6 +901,13 @@ enum AnnotationTests {
         expect(samples.last?.point == CGPoint(x: 100_000, y: 20)
             && samples.allSatisfy { $0.pressure.isFinite && $0.pressure > 0 && $0.pressure <= 1 },
                "resampling retains endpoint and finite simulated pressure")
+        var one = AnnotationInputSampler(), two = AnnotationInputSampler()
+        _ = one.sample(.zero, timestamp: 0, hardwarePressure: nil, mode: .simulated)
+        _ = two.sample(.zero, timestamp: 0, hardwarePressure: nil, mode: .simulated, coordinateScale: 2)
+        let oneSample = one.sample(CGPoint(x: 50, y: 20), timestamp: 0.1, hardwarePressure: nil, mode: .simulated)
+        let twoSample = two.sample(CGPoint(x: 100, y: 40), timestamp: 0.1, hardwarePressure: nil, mode: .simulated, coordinateScale: 2)
+        expect(oneSample.last?.pressure == twoSample.last?.pressure && oneSample.count == twoSample.count,
+               "pressure and resampling are invariant to canvas coordinate scale")
         var stroke = AnnotationElement(tool: .freehand)
         for index in 0..<5000 {
             stroke.appendFreehand([AnnotationInputSample(point: CGPoint(x: CGFloat(index) / 10,
@@ -893,13 +925,15 @@ enum AnnotationTests {
         stroke.points[10].y += 20
         expect(AnnotationGeometry.path(stroke) == AnnotationGeometry.uncachedPath(stroke),
                "editing an interior point invalidates append-only cache")
+        let longBuilds = AnnotationPathCache.shared.statistics.fullBuilds
         let baselineStart = ProcessInfo.processInfo.systemUptime
         for _ in 0..<30 { _ = AnnotationGeometry.uncachedPath(stroke) }
         let baseline = ProcessInfo.processInfo.systemUptime - baselineStart
         let cachedStart = ProcessInfo.processInfo.systemUptime
         for _ in 0..<30 { _ = AnnotationGeometry.path(stroke) }
         let cached = ProcessInfo.processInfo.systemUptime - cachedStart
-        expect(cached < baseline, "unchanged long strokes render with less geometry work than the uncached baseline")
+        expect(AnnotationPathCache.shared.statistics.fullBuilds == longBuilds,
+               "unchanged long strokes do not rebuild geometry")
         print(String(format: "ANNOTATION PATH BENCHMARK 5020 points x30: uncached %.6fs, cached %.6fs", baseline, cached))
         var style = stroke.resolvedStyle
         style.pressure = .hardware
@@ -908,6 +942,27 @@ enum AnnotationTests {
         let thin = AnnotationElement(tool: .line, points: [CGPoint(x: 50, y: 0), CGPoint(x: 50, y: 100)])
         expect(AnnotationPathSampling.sweptHit(thin, from: CGPoint(x: 0, y: 50), to: CGPoint(x: 100, y: 50), tolerance: 2),
                "eraser sweep catches thin strokes between sparse events")
+        AnnotationPathCache.shared.removeAll()
+        let scene = (0..<200).map { index in
+            AnnotationElement(tool: .rect, rect: CGRect(x: index, y: index, width: 40, height: 30))
+        }
+        for element in scene { _ = AnnotationGeometry.path(element) }
+        let builds = AnnotationPathCache.shared.statistics.fullBuilds
+        let sceneStart = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<30 { for element in scene { _ = AnnotationGeometry.uncachedPath(element) } }
+        let sceneBaseline = ProcessInfo.processInfo.systemUptime - sceneStart
+        let sceneCachedStart = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<30 { for element in scene { _ = AnnotationGeometry.path(element) } }
+        let sceneCached = ProcessInfo.processInfo.systemUptime - sceneCachedStart
+        expect(AnnotationPathCache.shared.statistics.fullBuilds == builds,
+               "unchanged many-element scene does not rebuild paths")
+        expect(AnnotationPathCache.shared.statistics.entries == scene.count,
+               "repeated scene rendering retains one body-cache entry per element")
+        print(String(format: "ANNOTATION SCENE BENCHMARK 200 elements x30: uncached %.6fs, cached %.6fs", sceneBaseline, sceneCached))
+        for index in 0..<400 {
+            _ = AnnotationGeometry.path(AnnotationElement(tool: .rect, rect: CGRect(x: index, y: 0, width: 20, height: 20)))
+        }
+        expect(AnnotationPathCache.shared.statistics.entries <= 256, "geometry cache bounds retained entries without truncating documents")
         for language in AppLanguage.allCases {
             expect(AnnotationInputStrings.labels(language).count == 5, "input controls localized for \(language)")
         }
@@ -997,11 +1052,67 @@ enum AnnotationTests {
                "recognition bounds input without truncating the document stroke")
     }
 
+    private static func testPreferencesAndChannels(_ expect: (Bool, String) -> Void) {
+        let suite = "com.vorssaint.annotation-tests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            expect(false, "isolated annotation preference suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var style = AnnotationStyle(color: .purple, width: 9)
+        style.fill = .crossHatch
+        style.curved = true
+        style.fontFamily = .serif
+        style.isHighlighter = true
+        AnnotationStylePreferences.save(["pen": style], defaults: defaults, key: DefaultsKey.screenAnnotationStyles)
+        expect(AnnotationStylePreferences.load(defaults: defaults, key: DefaultsKey.screenAnnotationStyles)["pen"] == style,
+               "typed per-tool styles round-trip through isolated preferences")
+        expect(AnnotationStylePreferences.load(defaults: defaults, key: DefaultsKey.screenshotAnnotationStyles).isEmpty,
+               "live and screenshot defaults remain scoped to their host")
+        let primary = AnnotationStyle(color: .red, width: 2)
+        var other = AnnotationStyle(color: .blue, width: 9)
+        other.fill = .hatch
+        var updated = primary
+        updated.color = .green
+        let merged = other.applyingChanges(from: primary, to: updated)
+        expect(merged.color == .green && merged.width == 9 && merged.fill == .hatch,
+               "multi-selection color edits preserve unrelated mixed widths and fills")
+        var document = AnnotationDocument()
+        let element = AnnotationElement(tool: .rect, rect: CGRect(x: 20, y: 20, width: 100, height: 80), style: primary)
+        document.edit { $0.elements = [element]; $0.selection = [element.id] }
+        document.begin()
+        document.edit { $0.elements[0].style?.color = .green }
+        document.edit { $0.elements[0].style?.fillColor = .purple }
+        document.commit()
+        document.undo()
+        expect(document.elements == [element], "color channel switches coalesce under one outer picker transaction")
+        document.begin()
+        document.edit { AnnotationSelection.transform(&$0, rotation: 37 * .pi / 180, factor: 1.7) }
+        document.commit()
+        expect(abs(document.elements[0].rotation - 37 * .pi / 180) < 0.001
+            && abs(document.elements[0].rect.width - 170) < 0.001, "selection supports arbitrary rotation and scale")
+        document.undo()
+        expect(document.elements == [element], "continuous transforms remain one undo transaction")
+        let keys = AnnotationTool.allCases.map(\.shortcutKey)
+        expect(Set(keys).count == keys.count, "live tool shortcuts are unambiguous")
+        expect(ScreenshotSupport.Tool.allCases.prefix(9) == [.select, .arrow, .pixelate, .crop, .text, .sticker, .rect, .highlight, .freehand],
+               "screenshot tool order and numbered defaults remain unchanged")
+        var redactStyle = primary
+        redactStyle.opacity = 0
+        redactStyle.color.alpha = 0
+        let redact = AnnotationElement(tool: .redact, rect: CGRect(x: 20, y: 20, width: 100, height: 80), style: redactStyle)
+        let redacted = bitmap { AnnotationRenderer.draw(redact, in: $0, scale: 1, shadowsEnabled: false) }
+        let pixel = redacted.map { Array($0[((50 * 200 + 50) * 4)..<((50 * 200 + 50) * 4 + 4)]) }
+        expect(pixel?.last == 255, "solid redaction cannot accidentally become transparent: \(String(describing: pixel))")
+    }
+
     private static func bitmap(_ draw: (CGContext) -> Void) -> Data? {
         guard let context = CGContext(data: nil, width: 200, height: 200, bitsPerComponent: 8,
             bytesPerRow: 800, space: CGColorSpace(name: CGColorSpace.sRGB)!,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
               let data = context.data else { return nil }
+        context.translateBy(x: 0, y: 200)
+        context.scaleBy(x: 1, y: -1)
         draw(context)
         return Data(bytes: data, count: 160_000)
     }

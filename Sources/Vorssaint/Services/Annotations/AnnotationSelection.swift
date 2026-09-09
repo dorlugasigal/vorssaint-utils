@@ -103,38 +103,55 @@ enum AnnotationSelection {
                 }
             }
         case .rotateLeft, .rotateRight, .grow, .shrink:
-            let elements = state.elements.filter { editable.contains($0.id) }
-            guard let first = elements.first else { return }
-            let bounds = elements.dropFirst().reduce(AnnotationGeometry.visualBounds(first)) {
-                $0.union(AnnotationGeometry.visualBounds($1))
-            }
-            let center = CGPoint(x: bounds.midX, y: bounds.midY)
             let angle: CGFloat = action == .rotateLeft ? -.pi / 12 : action == .rotateRight ? .pi / 12 : 0
             let factor: CGFloat = action == .grow ? 1.1 : action == .shrink ? 1 / 1.1 : 1
-            let transform = CGAffineTransform(translationX: center.x, y: center.y)
-                .rotated(by: angle).scaledBy(x: factor, y: factor)
-                .translatedBy(x: -center.x, y: -center.y)
-            for index in state.elements.indices where editable.contains(state.elements[index].id) {
-                var element = state.elements[index]
-                // Screenshot sampling regions remain axis-aligned.
-                if element.tool == .pixelate { continue }
-                let old = AnnotationGeometry.bounds(element)
-                if !element.points.isEmpty {
-                    element.points = element.points.map { $0.applying(transform) }
-                    element.controls = element.controls.map { $0.applying(transform) }
-                    state.elements[index] = element
-                    continue
-                }
-                let movedCenter = CGPoint(x: old.midX, y: old.midY).applying(transform)
-                let local = CGAffineTransform(translationX: movedCenter.x, y: movedCenter.y)
-                    .scaledBy(x: factor, y: factor).translatedBy(x: -old.midX, y: -old.midY)
-                element.points = element.points.map { $0.applying(local) }
-                element.rect = element.rect.applying(local)
-                element.rotation += angle
-                state.elements[index] = element
-            }
+            transform(&state, rotation: angle, factor: factor)
         }
         state.elements = ScreenshotSupport.renumberingCounters(state.elements)
+        AnnotationBindings.resolve(&state.elements)
+    }
+
+    static func rotation(of element: AnnotationElement) -> CGFloat {
+        if (element.tool == .arrow || element.tool == .line), let first = element.points.first,
+           let last = element.points.last, element.points.count >= 2 {
+            return atan2(last.y - first.y, last.x - first.x)
+        }
+        return atan2(sin(element.rotation), cos(element.rotation))
+    }
+
+    static func transform(_ state: inout AnnotationDocument.Snapshot, rotation: CGFloat, factor: CGFloat) {
+        guard rotation.isFinite, factor.isFinite, factor > 0 else { return }
+        let selected = expandingGroups(state.selection, in: state.elements)
+        let elements = state.elements.filter { selected.contains($0.id) && !$0.isLocked && $0.tool != .pixelate }
+        guard let first = elements.first else { return }
+        let editable = Set(elements.map(\.id))
+        let bounds = elements.dropFirst().reduce(AnnotationGeometry.visualBounds(first)) {
+            $0.union(AnnotationGeometry.visualBounds($1))
+        }
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let transform = CGAffineTransform(translationX: center.x, y: center.y)
+            .rotated(by: rotation).scaledBy(x: factor, y: factor)
+            .translatedBy(x: -center.x, y: -center.y)
+        for index in state.elements.indices where editable.contains(state.elements[index].id) {
+            var element = state.elements[index]
+            if !element.points.isEmpty {
+                element.points = element.points.map { $0.applying(transform) }
+                element.controls = element.controls.map { $0.applying(transform) }
+            } else {
+                let old = element.rect
+                let movedCenter = CGPoint(x: old.midX, y: old.midY).applying(transform)
+                element.rect = CGRect(x: movedCenter.x - old.width * factor / 2,
+                                      y: movedCenter.y - old.height * factor / 2,
+                                      width: old.width * factor, height: old.height * factor)
+                element.rotation += rotation
+                if element.tool == .text {
+                    var style = element.resolvedStyle
+                    style.textSize = min(240, max(6, (style.textSize ?? element.stroke.fontSize) * factor))
+                    element.style = style
+                }
+            }
+            state.elements[index] = element
+        }
         AnnotationBindings.resolve(&state.elements)
     }
 }

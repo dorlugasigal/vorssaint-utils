@@ -133,13 +133,9 @@ struct ScreenAnnotationStrings {
     let controls: String
 
     init(title: String, pen: String, highlighter: String, undo: String, clear: String,
-         exit: String, openOverlay: String = "Open overlay",
-         settingsDescription: String = "The overlay stays available while this feature is installed. Use the toolbar to choose the tool, color, and width.",
-         penDescription: String = "Freehand stroke",
-         highlighterDescription: String = "Semi-transparent stroke",
-         undoDescription: String = "Removes the last stroke",
-         clearDescription: String = "Removes all strokes",
-         controls: String = "Controls") {
+         exit: String, openOverlay: String, settingsDescription: String,
+         penDescription: String, highlighterDescription: String,
+         undoDescription: String, clearDescription: String, controls: String) {
          self.title = title
         self.pen = pen
         self.highlighter = highlighter
@@ -157,19 +153,71 @@ struct ScreenAnnotationStrings {
 
     var shortcutLabel: String { "⌃2" }
 
-    static let enUS = ScreenAnnotationStrings(title: "Screen annotation", pen: "Pen", highlighter: "Highlighter", undo: "Undo", clear: "Clear", exit: "Exit", openOverlay: "Open overlay", settingsDescription: "The overlay stays available while this feature is installed. Use the toolbar to choose the tool, color, and width.", penDescription: "Freehand stroke", highlighterDescription: "Semi-transparent stroke", undoDescription: "Removes the last stroke", clearDescription: "Removes all strokes")
-    static let ptBR = ScreenAnnotationStrings(title: "Anotação de tela", pen: "Caneta", highlighter: "Marca-texto", undo: "Desfazer", clear: "Limpar", exit: "Sair", openOverlay: "Abrir overlay", settingsDescription: "O overlay permanece disponível enquanto o recurso estiver instalado. Use a barra para escolher ferramenta, cor e espessura.", penDescription: "Traço livre", highlighterDescription: "Traço semitransparente", undoDescription: "Remove o último traço", clearDescription: "Remove todos os traços", controls: "Controles")
-    static let tr = ScreenAnnotationStrings(title: "Ekran açıklaması", pen: "Kalem", highlighter: "Vurgulayıcı", undo: "Geri al", clear: "Temizle", exit: "Çık")
-    static let ru = ScreenAnnotationStrings(title: "Аннотация экрана", pen: "Перо", highlighter: "Маркер", undo: "Отменить", clear: "Очистить", exit: "Выйти")
-    static let es = ScreenAnnotationStrings(title: "Anotación de pantalla", pen: "Pluma", highlighter: "Resaltador", undo: "Deshacer", clear: "Limpiar", exit: "Salir")
-    static let de = ScreenAnnotationStrings(title: "Bildschirmanmerkung", pen: "Stift", highlighter: "Textmarker", undo: "Widerrufen", clear: "Löschen", exit: "Beenden")
-    static let fr = ScreenAnnotationStrings(title: "Annotation à l’écran", pen: "Stylet", highlighter: "Surligneur", undo: "Annuler", clear: "Effacer", exit: "Quitter")
-    static let it = ScreenAnnotationStrings(title: "Annotazione dello schermo", pen: "Penna", highlighter: "Evidenziatore", undo: "Annulla", clear: "Cancella", exit: "Esci")
-    static let ja = ScreenAnnotationStrings(title: "画面注釈", pen: "ペン", highlighter: "蛍光ペン", undo: "取り消す", clear: "消去", exit: "終了")
-    static let ko = ScreenAnnotationStrings(title: "화면 주석", pen: "펜", highlighter: "형광펜", undo: "실행 취소", clear: "지우기", exit: "나가기")
-    static let zhHans = ScreenAnnotationStrings(title: "屏幕标注", pen: "画笔", highlighter: "荧光笔", undo: "撤销", clear: "清除", exit: "退出")
-    static let zhTW = ScreenAnnotationStrings(title: "螢幕標註", pen: "畫筆", highlighter: "螢光筆", undo: "復原", clear: "清除", exit: "離開")
-    static let zhHK = ScreenAnnotationStrings(title: "螢幕標註", pen: "畫筆", highlighter: "螢光筆", undo: "復原", clear: "清除", exit: "離開")
+    static let enUS = ScreenAnnotationStrings(title: "Screen annotation", pen: "Pen", highlighter: "Highlighter",
+        undo: "Undo", clear: "Clear", exit: "Close", openOverlay: "Open overlay",
+        settingsDescription: AnnotationSessionStrings.instructions(.enUS), penDescription: "Freehand stroke",
+        highlighterDescription: "Semi-transparent freehand stroke", undoDescription: "Undo or redo a complete edit",
+        clearDescription: "Removes all annotations", controls: "Controls")
+    static let ptBR = ScreenAnnotationStrings(title: "Anotação de tela", pen: "Caneta", highlighter: "Marca-texto",
+        undo: "Desfazer", clear: "Limpar", exit: "Fechar", openOverlay: "Abrir sobreposição",
+        settingsDescription: AnnotationSessionStrings.instructions(.ptBR), penDescription: "Traço livre",
+        highlighterDescription: "Traço livre semitransparente", undoDescription: "Desfaz ou refaz uma edição completa",
+        clearDescription: "Remove todas as anotações", controls: "Controles")
+    static let tr = ScreenAnnotationStrings(title: "Ekran açıklaması", pen: "Kalem", highlighter: "Vurgulayıcı",
+        undo: "Geri al", clear: "Temizle", exit: "Kapat", openOverlay: "Katmanı aç",
+        settingsDescription: AnnotationSessionStrings.instructions(.tr), penDescription: "Serbest çizim",
+        highlighterDescription: "Yarı saydam serbest çizim", undoDescription: "Tam bir düzenlemeyi geri alır veya yineler",
+        clearDescription: "Tüm açıklamaları kaldırır", controls: "Kontroller")
+    static let ru = ScreenAnnotationStrings(title: "Аннотация экрана", pen: "Перо", highlighter: "Маркер",
+        undo: "Отменить", clear: "Очистить", exit: "Закрыть", openOverlay: "Открыть слой",
+        settingsDescription: AnnotationSessionStrings.instructions(.ru), penDescription: "Свободный штрих",
+        highlighterDescription: "Полупрозрачный свободный штрих", undoDescription: "Отмена или повтор целого изменения",
+        clearDescription: "Удаляет все аннотации", controls: "Управление")
+    static let es = ScreenAnnotationStrings(title: "Anotación de pantalla", pen: "Pluma", highlighter: "Resaltador",
+        undo: "Deshacer", clear: "Limpiar", exit: "Cerrar", openOverlay: "Abrir superposición",
+        settingsDescription: AnnotationSessionStrings.instructions(.es), penDescription: "Trazo libre",
+        highlighterDescription: "Trazo libre semitransparente", undoDescription: "Deshace o rehace una edición completa",
+        clearDescription: "Elimina todas las anotaciones", controls: "Controles")
+    static let de = ScreenAnnotationStrings(title: "Bildschirmanmerkung", pen: "Stift", highlighter: "Textmarker",
+        undo: "Rückgängig", clear: "Löschen", exit: "Schließen", openOverlay: "Zeichenebene öffnen",
+        settingsDescription: AnnotationSessionStrings.instructions(.de), penDescription: "Freihandstrich",
+        highlighterDescription: "Halbtransparenter Freihandstrich", undoDescription: "Ganze Bearbeitung rückgängig machen oder wiederholen",
+        clearDescription: "Entfernt alle Anmerkungen", controls: "Steuerung")
+    static let fr = ScreenAnnotationStrings(title: "Annotation à l’écran", pen: "Stylet", highlighter: "Surligneur",
+        undo: "Annuler", clear: "Effacer", exit: "Fermer", openOverlay: "Ouvrir la superposition",
+        settingsDescription: AnnotationSessionStrings.instructions(.fr), penDescription: "Trait à main levée",
+        highlighterDescription: "Trait à main levée semi-transparent", undoDescription: "Annule ou rétablit une modification complète",
+        clearDescription: "Supprime toutes les annotations", controls: "Commandes")
+    static let it = ScreenAnnotationStrings(title: "Annotazione dello schermo", pen: "Penna", highlighter: "Evidenziatore",
+        undo: "Annulla", clear: "Cancella", exit: "Chiudi", openOverlay: "Apri sovrapposizione",
+        settingsDescription: AnnotationSessionStrings.instructions(.it), penDescription: "Tratto a mano libera",
+        highlighterDescription: "Tratto a mano libera semitrasparente", undoDescription: "Annulla o ripete una modifica completa",
+        clearDescription: "Rimuove tutte le annotazioni", controls: "Controlli")
+    static let ja = ScreenAnnotationStrings(title: "画面注釈", pen: "ペン", highlighter: "蛍光ペン",
+        undo: "取り消す", clear: "消去", exit: "閉じる", openOverlay: "描画レイヤーを開く",
+        settingsDescription: AnnotationSessionStrings.instructions(.ja), penDescription: "フリーハンドの線",
+        highlighterDescription: "半透明のフリーハンドの線", undoDescription: "編集全体の取り消しまたはやり直し",
+        clearDescription: "すべての注釈を削除", controls: "操作")
+    static let ko = ScreenAnnotationStrings(title: "화면 주석", pen: "펜", highlighter: "형광펜",
+        undo: "실행 취소", clear: "지우기", exit: "닫기", openOverlay: "오버레이 열기",
+        settingsDescription: AnnotationSessionStrings.instructions(.ko), penDescription: "자유 곡선",
+        highlighterDescription: "반투명 자유 곡선", undoDescription: "전체 편집 실행 취소 또는 다시 실행",
+        clearDescription: "모든 주석 제거", controls: "컨트롤")
+    static let zhHans = ScreenAnnotationStrings(title: "屏幕标注", pen: "画笔", highlighter: "荧光笔",
+        undo: "撤销", clear: "清除", exit: "关闭", openOverlay: "打开覆盖层",
+        settingsDescription: AnnotationSessionStrings.instructions(.zhHans), penDescription: "自由笔画",
+        highlighterDescription: "半透明自由笔画", undoDescription: "撤销或重做完整编辑",
+        clearDescription: "删除所有标注", controls: "控制")
+    static let zhTW = ScreenAnnotationStrings(title: "螢幕標註", pen: "畫筆", highlighter: "螢光筆",
+        undo: "復原", clear: "清除", exit: "關閉", openOverlay: "開啟覆蓋層",
+        settingsDescription: AnnotationSessionStrings.instructions(.zhTW), penDescription: "自由筆畫",
+        highlighterDescription: "半透明自由筆畫", undoDescription: "復原或重做完整編輯",
+        clearDescription: "刪除所有標註", controls: "控制")
+    static let zhHK = ScreenAnnotationStrings(title: "螢幕標註", pen: "畫筆", highlighter: "螢光筆",
+        undo: "復原", clear: "清除", exit: "關閉", openOverlay: "開啟覆蓋層",
+        settingsDescription: AnnotationSessionStrings.instructions(.zhHK), penDescription: "自由筆畫",
+        highlighterDescription: "半透明自由筆畫", undoDescription: "復原或重做完整編輯",
+        clearDescription: "刪除所有標註", controls: "控制")
 }
 
 struct MixerFeatureStrings {

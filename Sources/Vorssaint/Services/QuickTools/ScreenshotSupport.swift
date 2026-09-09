@@ -1242,6 +1242,14 @@ enum ScreenshotSupport {
     enum StrokeID: String, CaseIterable {
         case small, medium, large
 
+        var fontSize: CGFloat {
+            switch self {
+            case .small: return 13
+            case .medium: return 19
+            case .large: return 27
+            }
+        }
+
         /// Line width in image points at 1x; export multiplies by the image
         /// scale so marks keep their weight on Retina captures.
         var width: CGFloat {
@@ -1300,11 +1308,6 @@ enum ScreenshotSupport {
         return movedRect(rect, by: .zero, within: bounds)
     }
 
-    /// One annotation on the canvas. Geometry lives in image-point
-    /// coordinates (top-left origin), so export is resolution-exact and the
-    /// view only scales for display.
-    typealias Annotation = AnnotationElement
-
     /// Which way a selected annotation moves through the drawing order.
     enum LayerMove {
         case forward, backward
@@ -1312,7 +1315,7 @@ enum ScreenshotSupport {
 
     /// Whether the annotation has somewhere to go: false at the end it is
     /// already heading for, and for an id that is not in the array.
-    static func canReorder(_ annotations: [Annotation],
+    static func canReorder(_ annotations: [AnnotationElement],
                            moving id: UUID,
                            _ move: LayerMove) -> Bool {
         guard let index = annotations.firstIndex(where: { $0.id == id }) else { return false }
@@ -1323,9 +1326,9 @@ enum ScreenshotSupport {
     /// in order, so a shape can go behind text that was written first. An
     /// annotation already at the end it is heading for stays put, and an
     /// unknown id leaves the array alone.
-    static func reordering(_ annotations: [Annotation],
+    static func reordering(_ annotations: [AnnotationElement],
                            moving id: UUID,
-                           _ move: LayerMove) -> [Annotation] {
+                           _ move: LayerMove) -> [AnnotationElement] {
         guard let index = annotations.firstIndex(where: { $0.id == id }) else { return annotations }
         let target = move == .forward ? index + 1 : index - 1
         guard annotations.indices.contains(target) else { return annotations }
@@ -1336,7 +1339,7 @@ enum ScreenshotSupport {
 
     /// Counters stay 1…n in creation order; deleting one renumbers the rest
     /// so a sequence never shows a hole.
-    static func renumberingCounters(_ annotations: [Annotation]) -> [Annotation] {
+    static func renumberingCounters(_ annotations: [AnnotationElement]) -> [AnnotationElement] {
         var next = 1
         return annotations.map { annotation in
             guard annotation.tool == .counter else { return annotation }

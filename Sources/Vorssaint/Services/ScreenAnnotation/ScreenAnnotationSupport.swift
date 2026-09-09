@@ -53,6 +53,21 @@ enum AnnotationTool: String, Codable, CaseIterable {
 
     var isFreehand: Bool { self == .pen || self == .highlighter }
 
+    var shortcutKey: String {
+        switch self {
+        case .select: return "v"
+        case .pen: return "p"
+        case .highlighter: return "h"
+        case .arrow: return "a"
+        case .line: return "l"
+        case .rectangle: return "r"
+        case .ellipse: return "o"
+        case .text: return "t"
+        case .redact: return "x"
+        case .eraser: return "e"
+        }
+    }
+
     var elementTool: ScreenshotSupport.Tool? {
         switch self {
         case .select, .eraser: return nil

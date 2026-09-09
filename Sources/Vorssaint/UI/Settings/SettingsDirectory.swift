@@ -84,7 +84,12 @@ enum SettingsDirectory {
                                       featureKeywords: [
                                         (.screenAnnotation, [FeatureStrings.annotation(language).title,
                                                               FeatureStrings.annotation(language).pen,
-                                                              FeatureStrings.annotation(language).highlighter])
+                                                              FeatureStrings.annotation(language).highlighter,
+                                                              AnnotationSessionStrings.mode(true, language),
+                                                              AnnotationSessionStrings.mode(false, language),
+                                                              AnnotationInputStrings.smartDraw(language),
+                                                              AnnotationStyleStrings.diamond(language),
+                                                              AnnotationLinearStrings.bindings(language)])
                                       ]),
                 SettingsDirectoryItem(page: .energy, title: s.tabEnergy, icon: "bolt.fill",
                                        featureKeywords: [

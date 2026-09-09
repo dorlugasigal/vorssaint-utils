@@ -73,13 +73,14 @@ enum AnnotationRenderer {
         }
         let path = AnnotationGeometry.path(annotation, scale: scale)
         if annotation.tool == .rect || annotation.tool == .ellipse {
-            drawFill(style, path: path, in: context, scale: scale)
+            drawFill(annotation, path: path, in: context, scale: scale)
         }
         context.addPath(path)
         switch annotation.tool {
         case .arrow where AnnotationLinear.usesLegacyArrow(annotation):
             context.fillPath()
         case .redact:
+            context.setFillColor(color(style).withAlphaComponent(1).cgColor)
             context.fillPath()
         case .freehand where annotation.points.count == 1 || (style.pressure != .constant && !highlighter):
             context.fillPath()
@@ -99,7 +100,8 @@ enum AnnotationRenderer {
         }
     }
 
-    private static func drawFill(_ style: AnnotationStyle, path: CGPath, in context: CGContext, scale: CGFloat) {
+    private static func drawFill(_ element: AnnotationElement, path: CGPath, in context: CGContext, scale: CGFloat) {
+        let style = element.resolvedStyle
         guard style.fill != .none else { return }
         context.saveGState()
         defer { context.restoreGState() }
@@ -116,28 +118,28 @@ enum AnnotationRenderer {
         context.setStrokeColor(color(fillStyle).cgColor)
         context.setLineWidth(max(1, scale))
         context.setLineDash(phase: 0, lengths: [])
-        let bounds = path.boundingBoxOfPath
-        let step = max(6 * scale, style.width * 2 * scale)
-        for x in stride(from: bounds.minX - bounds.height, through: bounds.maxX, by: step) {
-            context.move(to: CGPoint(x: x, y: bounds.minY))
-            context.addLine(to: CGPoint(x: x + bounds.height, y: bounds.maxY))
-            if style.fill == .crossHatch {
-                context.move(to: CGPoint(x: x, y: bounds.maxY))
-                context.addLine(to: CGPoint(x: x + bounds.height, y: bounds.minY))
+        let hatch = AnnotationPathCache.shared.path(element, scale: scale, component: .hatch) {
+            let bounds = path.boundingBoxOfPath
+            let step = max(6 * scale, style.width * 2 * scale)
+            let hatch = CGMutablePath()
+            for x in stride(from: bounds.minX - bounds.height, through: bounds.maxX, by: step) {
+                hatch.move(to: CGPoint(x: x, y: bounds.minY))
+                hatch.addLine(to: CGPoint(x: x + bounds.height, y: bounds.maxY))
+                if style.fill == .crossHatch {
+                    hatch.move(to: CGPoint(x: x, y: bounds.maxY))
+                    hatch.addLine(to: CGPoint(x: x + bounds.height, y: bounds.minY))
+                }
             }
+            return AnnotationRoughness.path(hatch, character: style.character, seed: element.roughSeed ^ 0x4841544348,
+                                            width: scale, scale: scale)
         }
+        context.addPath(hatch)
         context.strokePath()
     }
 
     static func font(_ annotation: AnnotationElement, scale: CGFloat) -> NSFont {
         let style = annotation.resolvedStyle
-        let size: CGFloat
-        switch annotation.stroke {
-        case .small: size = 13
-        case .medium: size = 19
-        case .large: size = 27
-        }
-        let fontSize = (style.textSize ?? size) * scale
+        let fontSize = (style.textSize ?? annotation.stroke.fontSize) * scale
         let weight: NSFont.Weight = style.boldText ? .bold : style.mediumTextWeight ? .medium : .semibold
         switch style.fontFamily {
         case .system: return NSFont.systemFont(ofSize: fontSize, weight: weight)
