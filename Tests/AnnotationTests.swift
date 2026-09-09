@@ -13,6 +13,7 @@ enum AnnotationTests {
         testSelection(expect)
         testShapeStyles(expect)
         testLinear(expect)
+        testLinearFinishing(expect)
         testBindings(expect)
         testText(expect)
         testFreehand(expect)
@@ -363,7 +364,7 @@ enum AnnotationTests {
                "editing a curve control does not move vertices")
         var construction = AnnotationLinearConstruction(element: element, at: CGPoint(x: 10, y: 10))
         expect(construction.completed == nil, "single click cannot commit a degenerate line")
-        construction.preview = CGPoint(x: 100, y: 30)
+        construction.updatePreview(at: CGPoint(x: 100, y: 30), constrained: false, viewScale: 1)
         expect(construction.completed == nil && construction.displayed.points.count == 2,
                "preview does not finalize a multi-click vertex")
         construction.add(CGPoint(x: 100, y: 30))
@@ -375,6 +376,179 @@ enum AnnotationTests {
         for language in AppLanguage.allCases {
             expect(AnnotationLinearStrings.labels(language).count == 21, "linear inspector localized for \(language)")
         }
+    }
+
+    private static func testLinearFinishing(_ expect: (Bool, String) -> Void) {
+        for tool: ScreenshotSupport.Tool in [.arrow, .line] {
+            let element = AnnotationElement(tool: tool)
+            for scale: CGFloat in [0.25, 1, 2] {
+                for x: CGFloat in [-1, 1] {
+                    for y: CGFloat in [-1, 1] {
+                        let start = CGPoint(x: -30, y: 40)
+                        let end = CGPoint(x: start.x + 80 * x, y: start.y + 70 * y)
+                        var drag = AnnotationLinearConstruction(element: element, at: start, viewScale: scale)
+                        drag.updatePreview(at: end, constrained: true, viewScale: scale)
+                        let visible = drag.displayed.points
+                        expect(drag.release(at: end, constrained: true, viewScale: scale),
+                               "\(tool) ordinary drag finishes on release in every quadrant at \(scale)x")
+                        expect(drag.finish(commitPreview: false)?.points == visible,
+                               "release commits exactly the visible constrained endpoint")
+                    }
+                }
+                var clicks = AnnotationLinearConstruction(element: element, at: .zero, viewScale: scale)
+                expect(!clicks.release(at: .zero, constrained: false, viewScale: scale)
+                       && clicks.isClickConstruction, "click automatically starts linear construction")
+                let second = CGPoint(x: 100, y: 90)
+                clicks.updatePreview(at: second, constrained: true, viewScale: scale)
+                let vertex = clicks.preview
+                clicks.beginPointer(at: second, constrained: true, viewScale: scale)
+                expect(clicks.vertices == [.zero], "mouse-down does not commit a construction vertex")
+                expect(!clicks.release(at: second, constrained: true, viewScale: scale)
+                       && clicks.vertices == [.zero, vertex], "mouse-up commits one snapped vertex")
+                let third = CGPoint(x: vertex.x + 8, y: vertex.y + 90)
+                clicks.updatePreview(at: third, constrained: true, viewScale: scale)
+                expect(clicks.preview == AnnotationLinear.constrained(third, from: vertex),
+                       "every new segment constrains from its latest committed anchor")
+                clicks.updateConstraint(false, viewScale: scale)
+                expect(clicks.preview == third, "releasing Shift restores the raw floating endpoint")
+                clicks.updateConstraint(true, viewScale: scale)
+                let preview = clicks.preview
+                let finished = clicks.finish(commitPreview: true)
+                expect(finished?.points == [.zero, vertex, preview], "Enter commits floating preview then finishes")
+                expect(finished?.id == element.id, "construction preserves the arrow stable identity")
+
+                var handle = AnnotationLinearConstruction(element: element, at: .zero, viewScale: scale)
+                _ = handle.release(at: .zero, constrained: false, viewScale: scale)
+                handle.beginPointer(at: second, constrained: false, viewScale: scale)
+                _ = handle.release(at: second, constrained: false, viewScale: scale)
+                handle.updatePreview(at: third, constrained: false, viewScale: scale)
+                let nearHandle = CGPoint(x: second.x + 2 / scale, y: second.y)
+                handle.beginPointer(at: nearHandle, constrained: true, viewScale: scale)
+                expect(handle.release(at: nearHandle, constrained: true, viewScale: scale),
+                       "last committed vertex is a screen-scaled finish handle")
+                expect(handle.finish(commitPreview: false)?.points == [.zero, second],
+                       "finish handle discards the floating endpoint and never adds a tiny segment")
+
+                var doubleClick = AnnotationLinearConstruction(element: element, at: .zero, viewScale: scale)
+                _ = doubleClick.release(at: .zero, constrained: false, viewScale: scale)
+                doubleClick.beginPointer(at: second, constrained: true, viewScale: scale)
+                expect(doubleClick.release(at: second, constrained: true, viewScale: scale, clickCount: 2),
+                       "double-click commits its constrained endpoint and finishes")
+                let committed = doubleClick.vertices
+                expect(!doubleClick.release(at: second, constrained: true, viewScale: scale, clickCount: 2)
+                       && doubleClick.vertices == committed, "repeated release cannot double-commit vertices")
+
+                var snappedDoubleClick = AnnotationLinearConstruction(element: element, at: .zero, viewScale: scale)
+                _ = snappedDoubleClick.release(at: .zero, constrained: false, viewScale: scale)
+                let rawClick = CGPoint(x: 200, y: 100)
+                snappedDoubleClick.beginPointer(at: rawClick, constrained: true, viewScale: scale)
+                _ = snappedDoubleClick.release(at: rawClick, constrained: true, viewScale: scale)
+                let snappedVertices = snappedDoubleClick.vertices
+                snappedDoubleClick.beginPointer(at: rawClick, constrained: true, viewScale: scale)
+                expect(snappedDoubleClick.release(at: rawClick, constrained: true, viewScale: scale, clickCount: 2)
+                       && snappedDoubleClick.finish(commitPreview: false)?.points == snappedVertices,
+                       "second physical click finishes without adding a segment back from the snapped vertex")
+
+                var returnedDrag = AnnotationLinearConstruction(element: element, at: .zero, viewScale: scale)
+                returnedDrag.updatePreview(at: CGPoint(x: 5 / scale, y: 0), constrained: false, viewScale: scale)
+                expect(returnedDrag.release(at: .zero, constrained: false, viewScale: scale)
+                       && returnedDrag.completed == nil,
+                       "latched drag returning to origin cancels instead of unexpectedly starting click mode")
+                var boundary = AnnotationLinearConstruction(element: element, at: .zero, viewScale: scale)
+                expect(!boundary.release(at: CGPoint(x: 4 / scale, y: 0), constrained: false, viewScale: scale),
+                       "four-screen-point threshold is a click at every zoom")
+            }
+        }
+
+        let existing = AnnotationElement(tool: .rect, rect: CGRect(x: 10, y: 10, width: 20, height: 20))
+        var document = AnnotationDocument()
+        document.elements = [existing]
+        document.selectedIDs = [existing.id]
+        let original = document.state
+        let arrow = AnnotationElement(tool: .arrow)
+        var construction = AnnotationLinearConstruction(element: arrow, at: .zero)
+        document.begin()
+        document.elements.append(construction.displayed)
+        _ = construction.release(at: .zero, constrained: false, viewScale: 1)
+        construction.updatePreview(at: CGPoint(x: 100, y: 90), constrained: true, viewScale: 1)
+        document.elements[1] = construction.displayed
+        document.cancel()
+        expect(document.elements == original.elements && document.selectedIDs == original.selection
+               && !document.history.canUndo, "Escape cancels the entire speculative construction and restores selection")
+        document.begin()
+        if let finished = construction.finish(commitPreview: true) {
+            document.elements.append(finished)
+            document.selectedIDs = [finished.id]
+        }
+        document.commit()
+        expect(document.selectedIDs == [arrow.id], "completed arrow is immediately selected")
+        document.undo()
+        expect(document.elements == [existing] && !document.history.canUndo,
+               "one undo removes a completed multi-click arrow")
+        document.redo()
+        expect(document.elements.count == 2 && document.selectedIDs == [arrow.id],
+               "redo restores completed geometry and immediate editing selection")
+
+        for x: CGFloat in [-1, 1] {
+            for y: CGFloat in [-1, 1] {
+                var style = AnnotationStyle(color: .red, width: 4, curved: true,
+                                            startHead: .triangle, endHead: .triangle)
+                var curve = AnnotationElement(tool: .arrow,
+                    points: [CGPoint(x: 100, y: 100), CGPoint(x: 100 + 80 * x, y: 100 + 60 * y)], style: style)
+                curve.controls = [CGPoint(x: 100 + 30 * x, y: 100 + 60 * y),
+                                  CGPoint(x: 100 + 20 * x, y: 100 + 40 * y)]
+                let shaft = AnnotationLinear.shaftGeometry(curve)
+                for index in 0...1 {
+                    let oldTangent = CGPoint(x: curve.controls[index].x - curve.points[index].x,
+                                            y: curve.controls[index].y - curve.points[index].y)
+                    let newTangent = CGPoint(x: shaft.controls[index].x - shaft.points[index].x,
+                                            y: shaft.controls[index].y - shaft.points[index].y)
+                    expect(hypot(oldTangent.x - newTangent.x, oldTangent.y - newTangent.y) < 0.000_001,
+                           "shortening curved shaft preserves its exact endpoint tangent in every quadrant")
+                    let delta = CGPoint(x: shaft.points[index].x - curve.points[index].x,
+                                        y: shaft.points[index].y - curve.points[index].y)
+                    expect(abs(delta.x * oldTangent.y - delta.y * oldTangent.x) < 0.000_001,
+                           "curved shaft inset follows the arrowhead tangent instead of its adjacent knot")
+                }
+                style.startHead = .none
+                curve.style = style
+                let heads = AnnotationLinear.heads(curve, scale: 1)
+                if let head = heads.first, let polygon = AnnotationPathSampling.polylines(head.0).first,
+                   polygon.count >= 3 {
+                    let tip = polygon[0]
+                    let direction = CGPoint(x: tip.x - (polygon[1].x + polygon[2].x) / 2,
+                                            y: tip.y - (polygon[1].y + polygon[2].y) / 2)
+                    let tangent = CGPoint(x: curve.points[1].x - curve.controls[1].x,
+                                          y: curve.points[1].y - curve.controls[1].y)
+                    expect(abs(direction.x * tangent.y - direction.y * tangent.x) < 0.000_001
+                           && direction.x * tangent.x + direction.y * tangent.y > 0,
+                           "arrowhead points along the outward curve tangent in every quadrant")
+                    curve.rotation = .pi / 3
+                    var transform = AnnotationGeometry.transform(curve)
+                    expect(AnnotationLinear.heads(curve, scale: 1).first?.0.boundingBoxOfPath
+                           == head.0.copy(using: &transform)?.boundingBoxOfPath,
+                           "rotated arrowheads share the shaft world transform")
+                } else { expect(false, "curved arrow must have a nonempty triangle head") }
+            }
+        }
+        for length: CGFloat in [0.1, 1, 5, 20, 200] {
+            for head in AnnotationArrowhead.allCases {
+                let style = AnnotationStyle(color: .red, width: 6, startHead: head, endHead: head)
+                let line = AnnotationElement(tool: .arrow, points: [.zero, CGPoint(x: length, y: 0)], style: style)
+                let shaft = AnnotationLinear.shaftGeometry(line)
+                expect(shaft.points[0].x <= shaft.points[1].x,
+                       "short double-headed arrows never reverse their shaft")
+            }
+        }
+        var collapsed = AnnotationElement(tool: .arrow, points: [.zero, .zero],
+            style: AnnotationStyle(color: .red, width: 6, curved: true, endHead: .triangle))
+        collapsed.controls = [.zero, .zero]
+        expect(AnnotationLinear.heads(collapsed, scale: 1).isEmpty,
+               "collapsed curve does not acquire a spurious horizontal arrowhead")
+        collapsed.points = [.zero, CGPoint(x: 0, y: 50)]
+        collapsed.controls = collapsed.points
+        expect(AnnotationLinear.endpointAdjacent(collapsed, atStart: false) == .zero,
+               "degenerate endpoint control falls back to the neighboring distinct knot")
     }
 
     private static func testBindings(_ expect: (Bool, String) -> Void) {

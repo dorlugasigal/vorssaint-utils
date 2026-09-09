@@ -69,7 +69,7 @@ private struct AnnotationToolbarView: View {
                                 editPoints: service.editLinearPoints, smartDraw: $service.smartDrawEnabled)
             HStack {
                 if service.hasLinearConstruction {
-                    Button(FeatureStrings.screenshot(localization.language).done, action: service.finishLinearConstruction)
+                    Button(FeatureStrings.screenshot(localization.language).done) { service.finishLinearConstruction() }
                     Button(FeatureStrings.screenshot(localization.language).cancel, action: service.cancelLinearConstruction)
                 }
                 AnnotationSelectionMenu(hasSelection: !service.selectedIDs.isEmpty, perform: service.performSelectionAction)

@@ -100,7 +100,6 @@ struct AnnotationStyle: Equatable {
     var gridColumns = 4
     var axisTicks = true
     var curved = false
-    var multiClick = false
     var startHead: AnnotationArrowhead = .none
     var endHead: AnnotationArrowhead = .legacy
     var headSize: CGFloat = 1

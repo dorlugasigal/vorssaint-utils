@@ -88,12 +88,6 @@ struct AnnotationInspector: View {
                     AnnotationVisualChoices(values: [false, true], selection: $style.curved,
                         label: { $0 ? labels[14] : strings.toolLine },
                         preview: { .route(curved: $0) })
-                    Toggle(isOn: $style.multiClick) {
-                        Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
-                    }
-                    .toggleStyle(.button)
-                    .help(labels[15])
-                    .accessibilityLabel(labels[15])
                     Button { editPoints(true) } label: { Image(systemName: "plus.circle") }.help(labels[19])
                     Button { editPoints(false) } label: { Image(systemName: "minus.circle") }.help(labels[20])
                 }

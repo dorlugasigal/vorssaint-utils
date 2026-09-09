@@ -85,8 +85,8 @@ struct ScreenshotEditorView: View {
             BrandMark(width: 40, tint: Color(white: 0.92))
             HStack {
                 if model.hasLinearConstruction {
-                    Button(strings.done, action: model.finishLinearConstruction)
-                    Button(strings.cancel, action: model.cancelLinearConstruction)
+                    Button(strings.done) { model.finishLinearConstruction() }
+                    Button(strings.cancel) { model.cancelLinearConstruction() }
                 }
                 AnnotationSelectionMenu(hasSelection: !model.selectedIDs.isEmpty, perform: model.performSelectionAction)
                 Spacer()
@@ -319,6 +319,9 @@ struct ScreenshotEditorView: View {
         }
         drawTextSelection(cg)
         drawSelectionChrome(cg)
+        if let handle = model.linearFinishHandle {
+            AnnotationRenderer.drawLinearFinishHandle(at: handle, in: cg, scale: 1 / max(zoom, 0.001))
+        }
         drawCropChrome(cg, canvasSize: size, zoom: zoom)
         cg.restoreGState()
     }
@@ -360,6 +363,8 @@ struct ScreenshotEditorView: View {
             NSCursor.arrow.set()
         } else if model.editingTextID != nil || model.tool == .text {
             NSCursor.iBeam.set()
+        } else if model.isLinearFinishHandle(at: point) {
+            NSCursor.pointingHand.set()
         } else if model.tool != .select, model.selectedAnnotationOwns(point) {
             NSCursor.openHand.set()
         } else if model.tool == .freehand {
@@ -379,9 +384,11 @@ struct ScreenshotEditorView: View {
                 let point = imagePoint(from: value.location, zoom: zoom)
                 if !dragInFlight {
                     dragInFlight = true
-                    dragStartView = value.location
+                    dragStartView = value.startLocation
                     commitEditingTextIfNeeded()
-                    model.beginDrag(at: point, extendingSelection: NSEvent.modifierFlags.contains(.shift))
+                    model.beginDrag(at: imagePoint(from: value.startLocation, zoom: zoom),
+                                    extendingSelection: NSEvent.modifierFlags.contains(.shift))
+                    model.continueDrag(to: point)
                 } else {
                     model.continueDrag(to: point)
                 }
@@ -396,7 +403,7 @@ struct ScreenshotEditorView: View {
                    !CGRect(origin: .zero, size: model.imageSize).contains(point) {
                     return
                 }
-                model.endDrag(at: point, isTap: isTap)
+                model.endDrag(at: point, isTap: isTap, clickCount: controller.pointerClickCount)
                 if model.editingTextID != nil {
                     editingText = model.annotations.first(where: { $0.id == model.editingTextID })?.text ?? ""
                 }
