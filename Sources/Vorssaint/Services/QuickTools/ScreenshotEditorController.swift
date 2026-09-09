@@ -131,6 +131,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var additiveSelection = false
     private var marqueeSelection: Set<UUID> = []
     private var linearConstruction: AnnotationLinearConstruction?
+    private var strokeSampler = AnnotationInputSampler()
     var hasLinearConstruction: Bool { linearConstruction != nil }
     private var activeHandle: ScreenshotSupport.Handle?
     private var cropResizeOrigin: CGRect?
@@ -580,8 +581,11 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         case .freehand:
             registerUndo()
             dragRegistered = true
-            let annotation = ScreenshotSupport.Annotation(
-                tool: tool, points: [point], color: color, stroke: stroke, style: annotationStyleDefaults)
+            var annotation = ScreenshotSupport.Annotation(
+                tool: tool, color: color, stroke: stroke, style: annotationStyleDefaults)
+            strokeSampler = AnnotationInputSampler()
+            annotation.appendFreehand(strokeSampler.sample(point, timestamp: NSApp?.currentEvent?.timestamp ?? 0,
+                hardwarePressure: nil, mode: annotation.resolvedStyle.pressure))
             annotations.append(annotation)
             draftID = annotation.id
         case .rect, .ellipse, .highlight, .pixelate, .redact:
@@ -630,7 +634,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         }
     }
 
-    func continueDrag(to point: CGPoint) {
+    func continueDrag(to point: CGPoint, final: Bool = false) {
         defer { AnnotationBindings.resolve(&annotations) }
         let point = NSEvent.modifierFlags.contains(.shift) && (tool == .arrow || tool == .line)
             && !editingSelectedAnnotation ? AnnotationLinear.constrained(point, from: dragStart) : point
@@ -662,7 +666,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         case .arrow, .line:
             updateDraft { $0.points = [dragStart, point] }
         case .freehand:
-            updateDraft { $0.points.append(point) }
+            let event = NSApp?.currentEvent
+            let hardware = event?.subtype == .tabletPoint ? event.map { CGFloat($0.pressure) } : nil
+            let mode = annotations.first(where: { $0.id == draftID })?.resolvedStyle.pressure ?? .constant
+            let samples = strokeSampler.sample(point, timestamp: event?.timestamp ?? ProcessInfo.processInfo.systemUptime,
+                hardwarePressure: hardware, mode: mode, final: final)
+            updateDraft { $0.appendFreehand(samples) }
         case .rect, .ellipse, .highlight, .pixelate, .redact:
             updateDraft { $0.rect = ScreenshotSupport.selectionRect(from: dragStart, to: point) }
         case .text, .sticker, .counter:
@@ -726,7 +735,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             dragRegistered = false
             editingSelectedAnnotation = false
         }
-        if !isTap { continueDrag(to: point) }
+        if !isTap { continueDrag(to: point, final: true) }
         if editingSelectedAnnotation {
             finishSelectDrag(at: point, isTap: isTap)
             return

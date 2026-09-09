@@ -11,6 +11,7 @@ enum AnnotationTests {
         testLinear(expect)
         testBindings(expect)
         testText(expect)
+        testFreehand(expect)
         let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
         for anchor in [CGRect(x: -1900, y: 1100, width: 50, height: 50),
                        CGRect(x: -100, y: 2050, width: 50, height: 50)] {
@@ -314,6 +315,60 @@ enum AnnotationTests {
         expect(document.elements == [text], "text and inspector style edits undo in one transaction")
         for language in AppLanguage.allCases {
             expect(AnnotationTextStrings.labels(language).count == 11, "text inspector localized for \(language)")
+        }
+    }
+
+    private static func testFreehand(_ expect: (Bool, String) -> Void) {
+        var sampler = AnnotationInputSampler()
+        _ = sampler.sample(.zero, timestamp: 0, hardwarePressure: nil, mode: .constant)
+        expect(sampler.sample(CGPoint(x: 0.1, y: 0), timestamp: 0.01,
+            hardwarePressure: nil, mode: .constant).isEmpty, "freehand input filters subpixel jitter")
+        let final = sampler.sample(CGPoint(x: 0.1, y: 0), timestamp: 0.02,
+            hardwarePressure: nil, mode: .constant, final: true)
+        expect(final.last?.point == CGPoint(x: 0.1, y: 0), "mouse-up retains exact subpixel endpoint")
+        var simulated = AnnotationInputSampler()
+        _ = simulated.sample(.zero, timestamp: 0, hardwarePressure: nil, mode: .simulated)
+        let samples = simulated.sample(CGPoint(x: 100_000, y: 20), timestamp: 0.01,
+                                       hardwarePressure: nil, mode: .simulated)
+        expect(samples.count == AnnotationInputSampler.maximumSamplesPerEvent,
+               "one sparse event has bounded resampling work")
+        expect(samples.last?.point == CGPoint(x: 100_000, y: 20)
+            && samples.allSatisfy { $0.pressure.isFinite && $0.pressure > 0 && $0.pressure <= 1 },
+               "resampling retains endpoint and finite simulated pressure")
+        var stroke = AnnotationElement(tool: .freehand)
+        for index in 0..<5000 {
+            stroke.appendFreehand([AnnotationInputSample(point: CGPoint(x: CGFloat(index) / 10,
+                y: sin(CGFloat(index) / 30) * 20 + 50), pressure: 0.5)])
+        }
+        expect(stroke.points.count == 5000 && stroke.pressures.count == 5000,
+               "freehand is never truncated at the old 600-point limit")
+        expect(AnnotationGeometry.path(stroke) == AnnotationGeometry.uncachedPath(stroke),
+               "cached long stroke matches shared uncached geometry")
+        for index in 5000..<5020 {
+            stroke.appendFreehand([AnnotationInputSample(point: CGPoint(x: index, y: 40), pressure: 0.5)])
+            expect(AnnotationGeometry.path(stroke) == AnnotationGeometry.uncachedPath(stroke),
+                   "incremental append preserves exact smoothing and endpoint")
+        }
+        stroke.points[10].y += 20
+        expect(AnnotationGeometry.path(stroke) == AnnotationGeometry.uncachedPath(stroke),
+               "editing an interior point invalidates append-only cache")
+        let baselineStart = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<30 { _ = AnnotationGeometry.uncachedPath(stroke) }
+        let baseline = ProcessInfo.processInfo.systemUptime - baselineStart
+        let cachedStart = ProcessInfo.processInfo.systemUptime
+        for _ in 0..<30 { _ = AnnotationGeometry.path(stroke) }
+        let cached = ProcessInfo.processInfo.systemUptime - cachedStart
+        expect(cached < baseline, "unchanged long strokes render with less geometry work than the uncached baseline")
+        print(String(format: "ANNOTATION PATH BENCHMARK 5020 points x30: uncached %.6fs, cached %.6fs", baseline, cached))
+        var style = stroke.resolvedStyle
+        style.pressure = .hardware
+        stroke.style = style
+        expect(!AnnotationGeometry.path(stroke).isEmpty, "pressure-sensitive stroke has filled geometry")
+        let thin = AnnotationElement(tool: .line, points: [CGPoint(x: 50, y: 0), CGPoint(x: 50, y: 100)])
+        expect(AnnotationPathSampling.sweptHit(thin, from: CGPoint(x: 0, y: 50), to: CGPoint(x: 100, y: 50), tolerance: 2),
+               "eraser sweep catches thin strokes between sparse events")
+        for language in AppLanguage.allCases {
+            expect(AnnotationInputStrings.labels(language).count == 5, "input controls localized for \(language)")
         }
     }
 

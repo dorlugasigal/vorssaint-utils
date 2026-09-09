@@ -18,10 +18,8 @@ enum AnnotationRenderer {
             drawText(annotation, in: context, scale: scale, shadowsEnabled: shadowsEnabled)
             return
         }
-        var scaled = annotation
         var scaledStyle = style
         scaledStyle.width *= scale
-        scaled.style = scaledStyle
         context.saveGState()
         defer { context.restoreGState() }
         if shadowsEnabled {
@@ -38,7 +36,7 @@ enum AnnotationRenderer {
         case .dashed: context.setLineDash(phase: 0, lengths: [6 * scaledStyle.width, 3 * scaledStyle.width])
         case .dotted: context.setLineDash(phase: 0, lengths: [0, 2.5 * scaledStyle.width])
         }
-        let path = AnnotationGeometry.path(scaled)
+        let path = AnnotationGeometry.path(annotation, scale: scale)
         if annotation.tool == .rect || annotation.tool == .ellipse {
             drawFill(style, path: path, in: context, scale: scale)
         }
@@ -47,6 +45,8 @@ enum AnnotationRenderer {
         case .arrow where AnnotationLinear.usesLegacyArrow(annotation):
             context.fillPath()
         case .redact:
+            context.fillPath()
+        case .freehand where style.pressure != .constant:
             context.fillPath()
         case .highlight:
             context.setBlendMode(.multiply)

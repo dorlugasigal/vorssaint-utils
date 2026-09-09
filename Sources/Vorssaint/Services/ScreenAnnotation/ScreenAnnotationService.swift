@@ -46,6 +46,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     private(set) var marquee: CGRect?
     private var marqueeSelection: Set<UUID> = []
     private var linearConstruction: AnnotationLinearConstruction?
+    private var strokeSampler = AnnotationInputSampler()
+    private var eraserLast = CGPoint.zero
     private(set) var editingTextID: UUID?
     var hasLinearConstruction: Bool { linearConstruction != nil }
     var selectedIDs: Set<UUID> { document.selectedIDs }
@@ -164,6 +166,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         toolbarPanel?.contentViewController = nil
         toolbarPanel = nil
         drawingView = nil
+        AnnotationPathCache.shared.removeAll()
         document = AnnotationDocument()
         background = .transparent
         refreshDocument()
@@ -453,6 +456,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         }
         cancelGesture()
         dragStart = p
+        eraserLast = p
         if tool == .text {
             beginTextEditing(at: p, bounds: bounds)
             return
@@ -503,8 +507,13 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         guard let elementTool = tool.elementTool else { return }
         selectedID = nil
         document.begin()
-        let element = AnnotationElement(tool: elementTool, rect: CGRect(origin: p, size: .zero),
-            points: tool.isRectangular ? [] : [p, p], style: creationStyle)
+        var element = AnnotationElement(tool: elementTool, rect: CGRect(origin: p, size: .zero),
+            points: tool.isRectangular || tool.isFreehand ? [] : [p, p], style: creationStyle)
+        if tool.isFreehand {
+            strokeSampler = AnnotationInputSampler()
+            element.appendFreehand(strokeSampler.sample(p, timestamp: NSApp?.currentEvent?.timestamp ?? 0,
+                                                        hardwarePressure: nil, mode: creationStyle.pressure))
+        }
         strokes.append(element)
         draftID = element.id
         if (elementTool == .arrow || elementTool == .line) && creationStyle.multiClick {
@@ -556,7 +565,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         }
     }
 
-    fileprivate func continueStroke(at p: NSPoint, bounds: CGRect) {
+    fileprivate func continueStroke(at p: NSPoint, bounds: CGRect, final: Bool = false) {
         defer { AnnotationBindings.resolve(&strokes) }
         let p = NSEvent.modifierFlags.contains(.shift) && (tool == .arrow || tool == .line)
             && editGesture == nil && groupGestures.isEmpty ? AnnotationLinear.constrained(p, from: dragStart) : p
@@ -583,12 +592,18 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             return
         }
         if tool == .eraser {
-            if let id = hitTest(p, bounds: bounds) { strokes.removeAll { $0.id == id && !$0.isLocked } }
+            let previous = eraserLast
+            strokes.removeAll { !$0.isLocked && AnnotationPathSampling.sweptHit($0, from: previous, to: p, tolerance: 8) }
+            eraserLast = p
             return
         }
         guard let draftID, let i = strokes.firstIndex(where: { $0.id == draftID }) else { return }
         if strokes[i].tool == .freehand {
-            strokes[i].points.append(p)
+            let event = NSApp?.currentEvent
+            let hardware = event?.subtype == .tabletPoint ? event.map { CGFloat($0.pressure) } : nil
+            let samples = strokeSampler.sample(p, timestamp: event?.timestamp ?? ProcessInfo.processInfo.systemUptime,
+                hardwarePressure: hardware, mode: strokes[i].resolvedStyle.pressure, final: final)
+            strokes[i].appendFreehand(samples)
         } else if strokes[i].tool.dragsRect {
             strokes[i].rect = ScreenshotSupport.selectionRect(from: dragStart, to: p)
         } else {
@@ -603,7 +618,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             updateLinearPreview()
             return
         }
-        continueStroke(at: point, bounds: bounds)
+        continueStroke(at: point, bounds: bounds, final: true)
         if let draftID, hypot(point.x - dragStart.x, point.y - dragStart.y) < 1,
            tool != .pen && tool != .highlighter {
             strokes.removeAll { $0.id == draftID }

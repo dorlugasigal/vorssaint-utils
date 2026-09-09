@@ -45,6 +45,7 @@ enum AnnotationSelection {
                 copy.controls = original.controls.map { CGPoint(x: $0.x + 16, y: $0.y + 16) }
                 copy.startBinding = original.startBinding?.remapped(replacements)
                 copy.endBinding = original.endBinding?.remapped(replacements)
+                copy.pressures = original.pressures
                 if let group = original.groupID {
                     if groups[group] == nil { groups[group] = UUID() }
                     copy.groupID = groups[group]

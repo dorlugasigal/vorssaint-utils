@@ -8,20 +8,40 @@ import Foundation
 /// host supplies its logical-to-pixel scale rather than normalizing elements.
 struct AnnotationElement: Identifiable, Equatable {
     let id: UUID
-    var tool: ScreenshotSupport.Tool
-    var rect: CGRect
-    var points: [CGPoint]
+    var tool: ScreenshotSupport.Tool { didSet { geometryRevision = UUID() } }
+    var rect: CGRect { didSet { geometryRevision = UUID() } }
+    var points: [CGPoint] { didSet { geometryRevision = UUID(); appendBaseRevision = UUID() } }
     var text: String
     var color: ScreenshotSupport.ColorID
-    var stroke: ScreenshotSupport.StrokeID
+    var stroke: ScreenshotSupport.StrokeID { didSet { geometryRevision = UUID() } }
     var number: Int
-    var style: AnnotationStyle?
-    var rotation: CGFloat = 0
+    var style: AnnotationStyle? { didSet { geometryRevision = UUID() } }
+    var rotation: CGFloat = 0 { didSet { geometryRevision = UUID() } }
     var groupID: UUID?
     var isLocked = false
-    var controls: [CGPoint] = []
+    var controls: [CGPoint] = [] { didSet { geometryRevision = UUID() } }
     var startBinding: AnnotationBinding?
     var endBinding: AnnotationBinding?
+    var pressures: [CGFloat] = [] { didSet { geometryRevision = UUID() } }
+    private(set) var geometryRevision = UUID()
+    private(set) var appendBaseRevision = UUID()
+
+    mutating func appendFreehand(_ samples: [AnnotationInputSample]) {
+        guard !samples.isEmpty else { return }
+        let base = appendBaseRevision
+        points.append(contentsOf: samples.map(\.point))
+        pressures.append(contentsOf: samples.map(\.pressure))
+        appendBaseRevision = base
+    }
+
+    static func == (lhs: AnnotationElement, rhs: AnnotationElement) -> Bool {
+        lhs.id == rhs.id && lhs.tool == rhs.tool && lhs.rect == rhs.rect
+            && lhs.points == rhs.points && lhs.text == rhs.text && lhs.color == rhs.color
+            && lhs.stroke == rhs.stroke && lhs.number == rhs.number && lhs.style == rhs.style
+            && lhs.rotation == rhs.rotation && lhs.groupID == rhs.groupID && lhs.isLocked == rhs.isLocked
+            && lhs.controls == rhs.controls && lhs.startBinding == rhs.startBinding
+            && lhs.endBinding == rhs.endBinding && lhs.pressures == rhs.pressures
+    }
 
     init(id: UUID = UUID(), tool: ScreenshotSupport.Tool, rect: CGRect = .zero,
          points: [CGPoint] = [], text: String = "", color: ScreenshotSupport.ColorID = .red,
@@ -60,6 +80,7 @@ struct AnnotationStyle: Equatable {
     enum Shape: Int, CaseIterable { case standard, diamond }
     enum FontFamily: Int, CaseIterable { case system, serif, monospace, handwriting }
     enum Alignment: Int, CaseIterable { case left, center, right }
+    enum Pressure: Int, CaseIterable { case constant, hardware, simulated }
     var color: AnnotationColor
     var width: CGFloat
     var opacity: CGFloat = 1
@@ -80,6 +101,7 @@ struct AnnotationStyle: Equatable {
     var fontFamily: FontFamily = .system
     var textAlignment: Alignment = .left
     var boldText = false
+    var pressure: Pressure = .constant
 
     func sanitized() -> AnnotationStyle {
         var result = self
@@ -113,7 +135,17 @@ enum AnnotationGeometry {
         }
     }
 
-    static func path(_ element: AnnotationElement) -> CGPath {
+    static func path(_ element: AnnotationElement, scale: CGFloat = 1) -> CGPath {
+        AnnotationPathCache.shared.path(element, scale: scale) {
+            var scaled = element
+            var style = element.resolvedStyle
+            style.width *= scale
+            scaled.style = style
+            return uncachedPath(scaled)
+        }
+    }
+
+    static func uncachedPath(_ element: AnnotationElement) -> CGPath {
         let path = CGMutablePath()
         switch element.tool {
         case .rect:
@@ -139,6 +171,10 @@ enum AnnotationGeometry {
                     strokeWidth: element.resolvedStyle.width))
             } else { path.addPath(AnnotationLinear.path(element)) }
         case .freehand:
+            if element.resolvedStyle.pressure != .constant {
+                path.addPath(AnnotationFreehand.outline(element))
+                break
+            }
             guard let first = element.points.first else { return path }
             path.move(to: first)
             for index in 1..<element.points.count {
@@ -164,11 +200,12 @@ enum AnnotationGeometry {
         let tolerance = 10 * scale
         switch element.tool {
         case .arrow, .line, .freehand:
-            var scaled = element
             var style = element.resolvedStyle
             style.width *= scale
-            scaled.style = style
-            let geometry = path(scaled)
+            let geometry = path(element, scale: scale)
+            if element.tool == .freehand && element.resolvedStyle.pressure != .constant && geometry.contains(point) {
+                return true
+            }
             if AnnotationLinear.usesLegacyArrow(element) && geometry.contains(point) { return true }
             if element.tool == .arrow || element.tool == .line {
                 for (head, filled) in AnnotationLinear.heads(element, scale: scale) {

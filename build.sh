@@ -262,12 +262,15 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Annotations/AnnotationElement.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationLinear.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationBindings.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationFreehand.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationPathSampling.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationDocument.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationSelection.swift \
         Sources/Vorssaint/Core/AnnotationCommandStrings.swift \
         Sources/Vorssaint/Core/AnnotationStyleStrings.swift \
         Sources/Vorssaint/Core/AnnotationLinearStrings.swift \
         Sources/Vorssaint/Core/AnnotationTextStrings.swift \
+        Sources/Vorssaint/Core/AnnotationInputStrings.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationPanelPlacement.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationRenderer.swift \
         Sources/Vorssaint/Core/FeaturePresets.swift \

@@ -88,38 +88,8 @@ struct AnnotationColor: Codable, Equatable {
     }
 }
 
-struct AnnotationStroke: Codable, Equatable {
-    let tool: AnnotationTool
-    let color: AnnotationColor
-    let width: Double
-    let points: [AnnotationPoint]
-    let text: String
-
-    init(tool: AnnotationTool, color: AnnotationColor, width: Double,
-         points: [AnnotationPoint], text: String = "") {
-        self.tool = tool
-        self.color = color.clamped()
-        self.width = width.clamped(to: 1...40)
-        self.points = Array(points.prefix(ScreenAnnotationSupport.maxPointsPerStroke))
-        self.text = String(text.prefix(2_000))
-    }
-}
-
-enum AnnotationMode: String, Equatable {
-    case inactive
-    case drawing
-    case exiting
-    case clearing
-    case teardown
-}
-
 enum ScreenAnnotationSupport {
-    static let maxPointsPerStroke = 600
     static let defaultWidth = 6.0
-    /// Points are normalized before they reach `append`. This is roughly a
-    /// single physical pixel on ordinary desktop displays; comparing against
-    /// `0.25` here would instead require a half-screen movement.
-    static let minimumPointDistanceSquared = 0.000_000_25
 
     /// The canvas remains visible after Escape so existing strokes stay on
     /// screen, but it must stop participating in hit testing outside drawing.
@@ -130,20 +100,6 @@ enum ScreenAnnotationSupport {
                         y: (point.y / max(size.height, 1)).clamped(to: 0...1))
     }
 
-    static func append(_ point: AnnotationPoint, to points: [AnnotationPoint]) -> [AnnotationPoint] {
-        guard points.count < maxPointsPerStroke else { return points }
-        guard let last = points.last else { return [point] }
-        let dx = point.x - last.x
-        let dy = point.y - last.y
-        guard (dx * dx + dy * dy) >= minimumPointDistanceSquared else { return points }
-        return points + [point]
-    }
-
-    static func undo(_ strokes: [AnnotationStroke]) -> [AnnotationStroke] {
-        strokes.isEmpty ? [] : Array(strokes.dropLast())
-    }
-
-    static func clear(_ strokes: [AnnotationStroke]) -> [AnnotationStroke] { [] }
 }
 
 private extension Double {
