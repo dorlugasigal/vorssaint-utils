@@ -187,6 +187,15 @@ enum AnnotationTests {
             }
         }
         expect(Set(rendered).count == 4, "none solid hatch and crosshatch produce distinct fills")
+        let sharpDiamond = AnnotationGeometry.path(diamond)
+        style.roundness = 1
+        diamond.style = style
+        let roundedDiamond = AnnotationGeometry.path(diamond)
+        expect(roundedDiamond != sharpDiamond && roundedDiamond.boundingBoxOfPath.minY > diamond.rect.minY,
+               "diamond roundness changes its actual rendered and hit-test geometry")
+        let roundedBinding = AnnotationBindings.nearest(to: CGPoint(x: diamond.rect.midX, y: diamond.rect.minY),
+                                                        in: [diamond], tolerance: 14)
+        expect((roundedBinding?.anchor.y ?? 0) > 0, "bindings follow the rounded diamond perimeter rather than its clipped corner")
         style.shape = .standard
         style.roundness = 1
         diamond.style = style
@@ -200,6 +209,11 @@ enum AnnotationTests {
     private static func testLinear(_ expect: (Bool, String) -> Void) {
         var element = AnnotationElement(tool: .arrow, points: [CGPoint(x: 20, y: 80), CGPoint(x: 160, y: 80)])
         expect(AnnotationLinear.usesLegacyArrow(element), "default screenshot arrow retains legacy silhouette")
+        expect(!AnnotationLinear.canEditPoints(true, in: [element], selection: []),
+               "point editing is unavailable without a selected line")
+        expect(AnnotationLinear.canEditPoints(true, in: [element], selection: [element.id])
+            && !AnnotationLinear.canEditPoints(false, in: [element], selection: [element.id]),
+               "two-endpoint lines allow insertion but protect their minimum vertex count")
         var style = element.resolvedStyle
         for head in AnnotationArrowhead.allCases {
             for size: CGFloat in [1, 1.35, 1.75] {

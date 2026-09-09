@@ -15,6 +15,9 @@ struct AnnotationInspector: View {
     var tool: ScreenshotSupport.Tool
     var editPoints: (Bool) -> Void = { _ in }
     var smartDraw: Binding<Bool> = .constant(false)
+    var constructionMode: Binding<Bool> = .constant(false)
+    var canEditPoints = false
+    var canRemovePoints = false
     @ObservedObject private var localization = L10n.shared
 
     private var strings: ScreenshotFeatureStrings { FeatureStrings.screenshot(localization.language) }
@@ -83,9 +86,11 @@ struct AnnotationInspector: View {
                 let labels = AnnotationLinearStrings.labels(localization.language)
                 HStack {
                     Toggle(labels[14], isOn: $style.curved)
-                    Toggle(labels[15], isOn: $style.multiClick)
+                    Toggle(labels[15], isOn: constructionMode)
                     Button { editPoints(true) } label: { Image(systemName: "plus.circle") }.help(labels[19])
+                        .disabled(!canEditPoints)
                     Button { editPoints(false) } label: { Image(systemName: "minus.circle") }.help(labels[20])
+                        .disabled(!canRemovePoints)
                 }
                 HStack {
                     Picker(labels[16], selection: $style.startHead) {

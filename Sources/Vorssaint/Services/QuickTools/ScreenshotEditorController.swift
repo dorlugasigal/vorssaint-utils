@@ -156,8 +156,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         get { toolStyles[tool.rawValue] }
         set {
             toolStyles[tool.rawValue] = newValue
-            AnnotationStylePreferences.save(toolStyles, defaults: defaults, key: DefaultsKey.screenshotAnnotationStyles)
+            persistToolStyles()
         }
+    }
+
+    private func persistToolStyles() {
+        AnnotationStylePreferences.save(toolStyles, defaults: defaults, key: DefaultsKey.screenshotAnnotationStyles)
     }
 
     var inspectorStyle: AnnotationStyle {
@@ -167,6 +171,23 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
     var inspectorTool: ScreenshotSupport.Tool {
         annotations.first(where: { $0.id == selectedID })?.tool ?? tool
+    }
+    var multiClickMode: Bool {
+        let target: ScreenshotSupport.Tool = inspectorTool == .line ? .line : .arrow
+        return toolStyles[target.rawValue]?.multiClick ?? false
+    }
+
+    func setMultiClickMode(_ enabled: Bool) {
+        let target: ScreenshotSupport.Tool = inspectorTool == .line ? .line : .arrow
+        var style = toolStyles[target.rawValue] ?? AnnotationStyle(color: AnnotationColor(preset: color), width: stroke.width)
+        style.multiClick = enabled
+        objectWillChange.send()
+        toolStyles[target.rawValue] = style
+        persistToolStyles()
+    }
+
+    func canEditLinearPoints(_ insert: Bool) -> Bool {
+        AnnotationLinear.canEditPoints(insert, in: annotations, selection: selectedIDs)
     }
     var selectionIsLocked: Bool {
         !selectedIDs.isEmpty && annotations.filter { selectedIDs.contains($0.id) }.allSatisfy(\.isLocked)

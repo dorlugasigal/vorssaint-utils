@@ -199,10 +199,26 @@ enum AnnotationGeometry {
         case .rect:
             if element.resolvedStyle.shape == .diamond {
                 let rect = element.rect
-                path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-                path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-                path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-                path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
+                let vertices = [CGPoint(x: rect.midX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.midY),
+                                CGPoint(x: rect.midX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.midY)]
+                let cut = min(rect.width, rect.height) * element.resolvedStyle.roundness / 4
+                if cut > 0 {
+                    for index in vertices.indices {
+                        let corner = vertices[index]
+                        let before = vertices[(index + 3) % 4], after = vertices[(index + 1) % 4]
+                        let incomingLength = max(0.001, hypot(before.x - corner.x, before.y - corner.y))
+                        let outgoingLength = max(0.001, hypot(after.x - corner.x, after.y - corner.y))
+                        let incoming = CGPoint(x: corner.x + (before.x - corner.x) * cut / incomingLength,
+                                               y: corner.y + (before.y - corner.y) * cut / incomingLength)
+                        let outgoing = CGPoint(x: corner.x + (after.x - corner.x) * cut / outgoingLength,
+                                               y: corner.y + (after.y - corner.y) * cut / outgoingLength)
+                        if index == 0 { path.move(to: incoming) } else { path.addLine(to: incoming) }
+                        path.addQuadCurve(to: outgoing, control: corner)
+                    }
+                } else {
+                    path.move(to: vertices[0])
+                    for vertex in vertices.dropFirst() { path.addLine(to: vertex) }
+                }
                 path.closeSubpath()
             } else {
                 let radius = element.resolvedStyle.roundness * min(element.rect.width, element.rect.height) / 2

@@ -56,9 +56,12 @@ seeded geometry. Redact is always opaque, including when a mixed selection
 receives a translucent color.
 
 Select straight or curved linear routing, then optionally enable multi-click
-construction. Click vertices and finish with Return or Done; Escape/Cancel
+construction. Multi-click configures the next path even when an existing
+object is selected; it does not modify that object's style. Click vertices
+and finish with Return or Done; Escape/Cancel
 discards the construction. The point buttons insert or remove an interior
-vertex. Selected vertices and cubic controls can be dragged. Arrow remains
+vertex and are enabled only when the selection has editable vertices.
+Selected vertices and cubic controls can be dragged. Arrow remains
 Arrow when both heads are None. Both ends support the full arrowhead catalog,
 including outlined/filled forms and relationship cardinality markers.
 

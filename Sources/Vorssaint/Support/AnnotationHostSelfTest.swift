@@ -70,10 +70,10 @@ enum AnnotationHostSelfTest {
         expect(model.annotations.count == 2 && model.annotations[0].controls.count == 2,
                "curve control editing works while Arrow stays active")
         model.undo()
-        model.selectedID = nil
-        style = model.inspectorStyle
-        style.multiClick = true
-        model.setInspectorStyle(style)
+        let beforeModeChange = model.annotations
+        model.setMultiClickMode(true)
+        expect(model.multiClickMode && model.annotations == beforeModeChange,
+               "changing creation mode while selected does not edit the existing arrow")
         let beforePath = model.annotations
         model.beginDrag(at: CGPoint(x: 30, y: 200))
         model.endDrag(at: CGPoint(x: 30, y: 200), isTap: true)

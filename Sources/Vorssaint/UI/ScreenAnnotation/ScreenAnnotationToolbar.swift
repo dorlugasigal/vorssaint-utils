@@ -57,7 +57,10 @@ private struct AnnotationToolbarView: View {
             }
             AnnotationInspector(style: Binding(get: { service.inspectorStyle }, set: service.setInspectorStyle),
                                 editingChanged: service.styleEditingChanged, tool: service.inspectorTool,
-                                editPoints: service.editLinearPoints, smartDraw: $service.smartDrawEnabled)
+                                editPoints: service.editLinearPoints, smartDraw: $service.smartDrawEnabled,
+                                constructionMode: Binding(get: { service.multiClickMode }, set: service.setMultiClickMode),
+                                canEditPoints: service.canEditLinearPoints(true),
+                                canRemovePoints: service.canEditLinearPoints(false))
                 .disabled(service.selectionIsLocked)
             if !service.selectedIDs.isEmpty {
                 AnnotationTransformControls(rotation: Binding(get: { service.selectionRotation }, set: service.rotateSelection),

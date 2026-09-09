@@ -442,6 +442,27 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     var inspectorTool: ScreenshotSupport.Tool {
         strokes.first(where: { $0.id == selectedID })?.tool ?? tool.elementTool ?? .select
     }
+    var multiClickMode: Bool {
+        creationStyle(for: inspectorTool == .line ? .line : .arrow).multiClick
+    }
+
+    func setMultiClickMode(_ enabled: Bool) {
+        let target: AnnotationTool = inspectorTool == .line ? .line : .arrow
+        var style = creationStyle(for: target)
+        style.multiClick = enabled
+        objectWillChange.send()
+        toolStyles[target] = style
+        persistToolStyles()
+    }
+
+    func canEditLinearPoints(_ insert: Bool) -> Bool {
+        AnnotationLinear.canEditPoints(insert, in: strokes, selection: selectedIDs)
+    }
+
+    private func persistToolStyles() {
+        AnnotationStylePreferences.save(Dictionary(uniqueKeysWithValues: toolStyles.map { ($0.key.rawValue, $0.value) }),
+                                        defaults: defaults, key: DefaultsKey.screenAnnotationStyles)
+    }
     var selectionIsLocked: Bool {
         !selectedIDs.isEmpty && strokes.filter { selectedIDs.contains($0.id) }.allSatisfy(\.isLocked)
     }
@@ -481,8 +502,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             }
         } else {
             toolStyles[tool] = style
-            AnnotationStylePreferences.save(Dictionary(uniqueKeysWithValues: toolStyles.map { ($0.key.rawValue, $0.value) }),
-                                            defaults: defaults, key: DefaultsKey.screenAnnotationStyles)
+            persistToolStyles()
             color = style.color
             width = style.width
             defaults.set("\(color.red),\(color.green),\(color.blue),\(color.alpha)",
@@ -597,11 +617,13 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         }
     }
 
-    private var creationStyle: AnnotationStyle {
-        if let style = toolStyles[tool] { return style }
-        var style = AnnotationStyle(color: color, width: width, opacity: tool == .highlighter ? 0.35 : 1,
+    private var creationStyle: AnnotationStyle { creationStyle(for: tool) }
+
+    private func creationStyle(for requested: AnnotationTool) -> AnnotationStyle {
+        if let style = toolStyles[requested] { return style }
+        var style = AnnotationStyle(color: color, width: width, opacity: requested == .highlighter ? 0.35 : 1,
                                     smooth: false, textSize: max(14, width * 3), mediumTextWeight: true)
-        style.isHighlighter = tool == .highlighter
+        style.isHighlighter = requested == .highlighter
         return style
     }
 
@@ -805,6 +827,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                "selected arrow edits while Arrow remains active")
         service.undo()
         expect(service.strokes == [original], "endpoint edit undo is atomic")
+        service.setMultiClickMode(true)
+        expect(service.multiClickMode && service.strokes == [original],
+               "multi-click configures the next arrow without changing the selected arrow")
+        service.setMultiClickMode(false)
         var headless = service.inspectorStyle
         headless.endHead = .none
         service.selectedID = nil

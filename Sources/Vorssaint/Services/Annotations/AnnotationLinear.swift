@@ -16,6 +16,13 @@ enum AnnotationArrowhead: Int, Codable, CaseIterable {
 enum AnnotationLinear {
     private static let cacheLock = NSLock()
     private static var headCache: [UUID: (revision: UUID, scale: CGFloat, paths: [(CGPath, Bool)])] = [:]
+
+    static func canEditPoints(_ insert: Bool, in elements: [AnnotationElement], selection: Set<UUID>) -> Bool {
+        elements.contains {
+            selection.contains($0.id) && !$0.isLocked && ($0.tool == .arrow || $0.tool == .line)
+                && $0.points.count >= (insert ? 2 : 3)
+        }
+    }
     static func editPoints(_ insert: Bool, in element: inout AnnotationElement) {
         guard !element.isLocked, element.tool == .arrow || element.tool == .line,
               element.points.count >= 2 else { return }

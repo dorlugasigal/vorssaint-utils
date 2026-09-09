@@ -80,6 +80,24 @@ enum AnnotationBindings {
 
     private static func boundary(_ point: CGPoint, target: AnnotationElement) -> CGPoint {
         let rect = target.rect
+        guard rect.width > 0 && rect.height > 0 else { return CGPoint(x: rect.midX, y: rect.midY) }
+        if target.tool == .rect && target.resolvedStyle.roundness > 0 {
+            var inverse = AnnotationGeometry.transform(target).inverted()
+            let path = AnnotationGeometry.path(target).copy(using: &inverse) ?? AnnotationGeometry.path(target)
+            var nearest = CGPoint(x: rect.midX, y: rect.minY)
+            var distance = CGFloat.infinity
+            for points in AnnotationPathSampling.polylines(path) {
+                for (a, b) in zip(points, points.dropFirst()) {
+                    let dx = b.x - a.x, dy = b.y - a.y
+                    let t = min(1, max(0, ((point.x - a.x) * dx + (point.y - a.y) * dy)
+                        / max(0.000_001, dx * dx + dy * dy)))
+                    let candidate = CGPoint(x: a.x + dx * t, y: a.y + dy * t)
+                    let candidateDistance = hypot(candidate.x - point.x, candidate.y - point.y)
+                    if candidateDistance < distance { nearest = candidate; distance = candidateDistance }
+                }
+            }
+            return nearest
+        }
         let dx = point.x - rect.midX, dy = point.y - rect.midY
         if target.tool == .ellipse || target.resolvedStyle.shape == .diamond {
             let x = dx / max(rect.width / 2, 0.001), y = dy / max(rect.height / 2, 0.001)
@@ -92,13 +110,6 @@ enum AnnotationBindings {
         let candidates = [CGPoint(x: x, y: rect.minY), CGPoint(x: x, y: rect.maxY),
                           CGPoint(x: rect.minX, y: y), CGPoint(x: rect.maxX, y: y)]
         let nearest = candidates.min { hypot($0.x - point.x, $0.y - point.y) < hypot($1.x - point.x, $1.y - point.y) }!
-        let radius = target.resolvedStyle.roundness * min(rect.width, rect.height) / 2
-        guard radius > 0 else { return nearest }
-        let center = CGPoint(x: min(max(nearest.x, rect.minX + radius), rect.maxX - radius),
-                             y: min(max(nearest.y, rect.minY + radius), rect.maxY - radius))
-        let distance = hypot(nearest.x - center.x, nearest.y - center.y)
-        guard distance > 0 else { return nearest }
-        return CGPoint(x: center.x + (nearest.x - center.x) * radius / distance,
-                       y: center.y + (nearest.y - center.y) * radius / distance)
+        return nearest
     }
 }

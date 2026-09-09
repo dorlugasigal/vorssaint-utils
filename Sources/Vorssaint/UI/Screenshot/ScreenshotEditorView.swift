@@ -47,7 +47,10 @@ struct ScreenshotEditorView: View {
                     && model.inspectorTool != .select {
                     AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
                                         editingChanged: model.styleEditingChanged, tool: model.inspectorTool,
-                                        editPoints: model.editLinearPoints, smartDraw: $model.smartDrawEnabled)
+                                        editPoints: model.editLinearPoints, smartDraw: $model.smartDrawEnabled,
+                                        constructionMode: Binding(get: { model.multiClickMode }, set: model.setMultiClickMode),
+                                        canEditPoints: model.canEditLinearPoints(true),
+                                        canRemovePoints: model.canEditLinearPoints(false))
                         .disabled(model.selectionIsLocked)
                         .padding(.horizontal, 12)
                 }
