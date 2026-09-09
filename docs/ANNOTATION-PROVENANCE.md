@@ -9,6 +9,13 @@ Microsoft ZoomIt for Mac, including the local multi-monitor fixes in the
 `feat/native-drawing-toolbar` source worktree. No ZoomIt assets, branding,
 application shell or capture services are included.
 
+`AnnotationLinear` adapts ZoomIt's arrowhead catalog and size metrics.
+`AnnotationRoughness` adapts its seeded generator and Artist/Cartoonist profile
+metrics to the shared CGContext path pass. Endpoints remain pinned, and the
+default Architect style preserves Vorssaint's original screenshot geometry.
+Rough geometry is intentionally native to the shared path model rather than
+copying ZoomIt's zoom-dependent rendering and controller machinery.
+
 The destination contribution is GPL-3.0-or-later. The following permission
 notice applies to the attributed ZoomIt-derived portions:
 

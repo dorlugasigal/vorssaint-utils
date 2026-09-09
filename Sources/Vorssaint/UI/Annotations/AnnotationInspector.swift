@@ -30,6 +30,13 @@ struct AnnotationInspector: View {
                 .accessibilityLabel(AnnotationSessionStrings.opacity(localization.language))
             }
             if tool == .rect || tool == .ellipse || tool == .line || tool == .arrow || tool == .freehand {
+                let characters = AnnotationStyleStrings.characters(localization.language)
+                Picker(characters[0], selection: $style.character) {
+                    ForEach(AnnotationStyle.Character.allCases, id: \.rawValue) { character in
+                        Text(characters[character.rawValue + 1]).tag(character)
+                    }
+                }
+                .frame(width: 210)
                 HStack(spacing: 10) {
                     Picker(AnnotationStyleStrings.pattern(localization.language), selection: $style.pattern) {
                         ForEach(AnnotationStyle.Pattern.allCases, id: \.rawValue) { pattern in

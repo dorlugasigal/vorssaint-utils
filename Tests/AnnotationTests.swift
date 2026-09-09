@@ -12,6 +12,7 @@ enum AnnotationTests {
         testBindings(expect)
         testText(expect)
         testFreehand(expect)
+        testRoughness(expect)
         let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
         for anchor in [CGRect(x: -1900, y: 1100, width: 50, height: 50),
                        CGRect(x: -100, y: 2050, width: 50, height: 50)] {
@@ -369,6 +370,38 @@ enum AnnotationTests {
                "eraser sweep catches thin strokes between sparse events")
         for language in AppLanguage.allCases {
             expect(AnnotationInputStrings.labels(language).count == 5, "input controls localized for \(language)")
+        }
+    }
+
+    private static func testRoughness(_ expect: (Bool, String) -> Void) {
+        var line = AnnotationElement(tool: .line, points: [CGPoint(x: 20, y: 70), CGPoint(x: 170, y: 70)])
+        let clean = AnnotationGeometry.path(line)
+        var paths: [CGPath] = []
+        for character in AnnotationStyle.Character.allCases {
+            var style = line.resolvedStyle
+            style.character = character
+            line.style = style
+            let path = AnnotationGeometry.path(line)
+            AnnotationPathCache.shared.removeAll()
+            expect(path == AnnotationGeometry.path(line), "rough style \(character) is deterministic across redraws")
+            paths.append(path)
+            for points in AnnotationPathSampling.polylines(path) {
+                expect(points.first == line.points.first && points.last == line.points.last,
+                       "rough paths keep bound endpoints pinned")
+            }
+        }
+        expect(paths[0] == clean && paths[1] != clean && paths[2] != paths[1],
+               "architect artist and cartoonist are distinct opt-in geometries")
+        let previous = AnnotationGeometry.path(line)
+        line.roughSeed &+= 1
+        expect(AnnotationGeometry.path(line) != previous, "rough seed invalidates cached geometry")
+        var doubled = line
+        doubled.points = line.points.map { CGPoint(x: $0.x * 2, y: $0.y * 2) }
+        var scale = CGAffineTransform(scaleX: 2, y: 2)
+        expect(AnnotationGeometry.path(line).copy(using: &scale) == AnnotationGeometry.path(doubled, scale: 2),
+               "rough geometry scales consistently between logical and Retina pixels")
+        for language in AppLanguage.allCases {
+            expect(AnnotationStyleStrings.characters(language).count == 4, "rough styles localized for \(language)")
         }
     }
 

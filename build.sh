@@ -264,6 +264,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Annotations/AnnotationBindings.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationFreehand.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationPathSampling.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationRoughness.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationDocument.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationSelection.swift \
         Sources/Vorssaint/Core/AnnotationCommandStrings.swift \

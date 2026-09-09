@@ -46,6 +46,7 @@ enum AnnotationSelection {
                 copy.startBinding = original.startBinding?.remapped(replacements)
                 copy.endBinding = original.endBinding?.remapped(replacements)
                 copy.pressures = original.pressures
+                copy.roughSeed = original.roughSeed
                 if let group = original.groupID {
                     if groups[group] == nil { groups[group] = UUID() }
                     copy.groupID = groups[group]

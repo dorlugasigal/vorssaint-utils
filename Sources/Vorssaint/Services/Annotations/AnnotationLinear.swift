@@ -99,8 +99,9 @@ enum AnnotationLinear {
         ]
         return endpoints.compactMap { head, tip, adjacent in
             guard head != .none && head != .legacy else { return nil }
-            return (headPath(head, tip: tip, adjacent: adjacent, width: style.width * scale,
-                             size: style.headSize), head.isFilled)
+            let canonical = headPath(head, tip: tip, adjacent: adjacent, width: style.width * scale, size: style.headSize)
+            return (AnnotationRoughness.path(canonical, character: style.character,
+                    seed: element.roughSeed ^ UInt64(head.rawValue), width: style.width * scale, scale: scale), head.isFilled)
         }
     }
 
