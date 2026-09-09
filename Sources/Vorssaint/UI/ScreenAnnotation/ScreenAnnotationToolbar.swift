@@ -92,7 +92,7 @@ private struct AnnotationToolbarView: View {
 
     private func toolTitle(_ choice: AnnotationToolChoice) -> String {
         let screenshot = FeatureStrings.screenshot(localization.language)
-        if choice == .shape(.diamond) { return AnnotationStyleStrings.diamond(localization.language) }
+        if case .shape(let shape) = choice { return AnnotationDiagramStrings.title(shape, localization.language) }
         switch choice.tool {
         case .select: return screenshot.toolSelect
         case .pen: return strings.pen
@@ -108,7 +108,7 @@ private struct AnnotationToolbarView: View {
     }
 
     private func toolSymbol(_ choice: AnnotationToolChoice) -> String {
-        if choice == .shape(.diamond) { return "diamond" }
+        if case .shape(let shape) = choice { return shape.symbolName }
         switch choice.tool {
         case .select: return "cursorarrow"
         case .pen: return "pencil"

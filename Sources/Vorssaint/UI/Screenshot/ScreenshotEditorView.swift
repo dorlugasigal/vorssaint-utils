@@ -585,6 +585,25 @@ struct ScreenshotEditorView: View {
             ForEach(orderedTools, id: \.self) { tool in
                 railButton(tool)
             }
+            Divider().frame(width: 22)
+            ForEach(AnnotationStyle.Shape.allCases.filter { $0 != .standard }, id: \.rawValue) { shape in
+                Button {
+                    commitEditingTextIfNeeded()
+                    model.selectShape(shape)
+                } label: {
+                    Image(systemName: shape.symbolName)
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 33, height: 29)
+                        .background(model.tool == .rect && model.inspectorStyle.shape == shape
+                                    ? Color.accentColor.opacity(0.22) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 9))
+                }
+                .buttonStyle(.borderless)
+                .screenshotSafeHelp(AnnotationDiagramStrings.title(shape, l10n.language)
+                    + (shape.isDiagram && toolShortcutsEnabled
+                       ? AnnotationToolShortcuts.hint(for: .shape(shape)).map { " (\($0))" } ?? "" : ""))
+                .accessibilityLabel(AnnotationDiagramStrings.title(shape, l10n.language))
+            }
             Divider()
                 .frame(width: 22)
                 .padding(.vertical, 2)
@@ -622,7 +641,7 @@ struct ScreenshotEditorView: View {
     }
 
     private func railButton(_ tool: ScreenshotSupport.Tool) -> some View {
-        let isActive = model.tool == tool
+        let isActive = model.tool == tool && (tool != .rect || model.inspectorStyle.shape == .standard)
         let isHovered = hoveredTool == tool
         let shortcutNumber = ScreenshotSupport.Tool.shortcutNumber(
             for: tool,
@@ -630,7 +649,7 @@ struct ScreenshotEditorView: View {
             enabled: toolShortcutsEnabled)
         return Button {
             commitEditingTextIfNeeded()
-            model.tool = tool
+            if tool == .rect { model.selectShape(.standard) } else { model.tool = tool }
         } label: {
             Image(systemName: tool.screenshotSymbolName)
                 .font(.system(size: 13.5, weight: .medium))

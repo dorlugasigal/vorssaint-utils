@@ -159,6 +159,14 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         annotations.first(where: { $0.id == selectedID })?.tool ?? tool
     }
 
+    func selectShape(_ shape: AnnotationStyle.Shape) {
+        selectedID = nil
+        tool = .rect
+        var style = inspectorStyle
+        style.shape = shape
+        setInspectorStyle(style)
+    }
+
     func styleEditingChanged(_ editing: Bool) {
         if editing { history.begin(snapshot) } else {
             if editingTextID == nil { history.commit(snapshot) }
@@ -1204,6 +1212,14 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
             }
         }
         guard flags.isDisjoint(with: [.command, .control, .option]) else { return false }
+        if UserDefaults.standard.bool(forKey: DefaultsKey.screenshotToolShortcutsEnabled),
+           case .shape(let shape)? = AnnotationToolShortcuts.resolve(
+               keyCode: key, characters: event.charactersIgnoringModifiers,
+               shift: flags.contains(.shift), hasApplicationModifier: false),
+           shape.isDiagram {
+            if !event.isARepeat { model.selectShape(shape) }
+            return true
+        }
 
         switch key {
         case kVK_Delete, kVK_ForwardDelete:
@@ -1240,7 +1256,7 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
                     enabled: UserDefaults.standard.bool(
                         forKey: DefaultsKey.screenshotToolShortcutsEnabled))
             else { return false }
-            model.tool = tool
+            if tool == .rect { model.selectShape(.standard) } else { model.tool = tool }
             return true
         }
     }

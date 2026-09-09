@@ -278,6 +278,8 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Annotations/AnnotationRenderer.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationControlPreview.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationToolShortcuts.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationDiagramGeometry.swift \
+        Sources/Vorssaint/Core/AnnotationDiagramStrings.swift \
         Sources/Vorssaint/Core/FeaturePresets.swift \
         Sources/Vorssaint/Core/FeatureHubStrings.swift \
         Sources/Vorssaint/Core/ShortcutSettingsStrings.swift \

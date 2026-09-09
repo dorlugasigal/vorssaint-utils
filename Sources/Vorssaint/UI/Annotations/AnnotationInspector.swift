@@ -44,7 +44,7 @@ struct AnnotationInspector: View {
                     AnnotationVisualChoices(values: AnnotationStyle.Pattern.allCases, selection: $style.pattern,
                         label: { AnnotationStyleStrings.patternName($0, localization.language) },
                         preview: { .pattern($0) })
-                    if tool == .rect || tool == .ellipse {
+                    if tool == .ellipse || (tool == .rect && style.shape != .axes) {
                         Divider().frame(height: 24)
                         AnnotationVisualChoices(values: AnnotationStyle.Fill.allCases, selection: $style.fill,
                             label: { AnnotationStyleStrings.fillName($0, localization.language) },
@@ -58,11 +58,27 @@ struct AnnotationInspector: View {
             if tool == .rect {
                 HStack {
                     AnnotationVisualChoices(values: AnnotationStyle.Shape.allCases, selection: $style.shape,
-                        label: { $0 == .standard ? strings.toolRect : AnnotationStyleStrings.diamond(localization.language) },
+                        label: { AnnotationDiagramStrings.title($0, localization.language) },
                         preview: { .shape($0) })
                     Slider(value: $style.roundness, in: 0...1, onEditingChanged: editingChanged)
                         .frame(width: 100)
+                        .disabled(style.shape != .standard)
                         .accessibilityLabel(AnnotationStyleStrings.roundness(localization.language))
+                }
+                if style.shape == .grid {
+                    let labels = AnnotationDiagramStrings.labels(localization.language)
+                    HStack {
+                        Stepper(value: $style.gridRows, in: 1...12) {
+                            Label("\(style.gridRows)", systemImage: "rectangle.split.3x1")
+                        }.help(labels[5]).accessibilityLabel(labels[5])
+                        Stepper(value: $style.gridColumns, in: 1...12) {
+                            Label("\(style.gridColumns)", systemImage: "rectangle.split.1x3")
+                        }.help(labels[6]).accessibilityLabel(labels[6])
+                    }
+                    .fixedSize()
+                }
+                if style.shape == .axes {
+                    Toggle(AnnotationDiagramStrings.labels(localization.language)[7], isOn: $style.axisTicks)
                 }
             }
             if tool == .line || tool == .arrow {

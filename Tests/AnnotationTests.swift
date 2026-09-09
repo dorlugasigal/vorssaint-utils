@@ -7,6 +7,7 @@ enum AnnotationTests {
     static func run(_ expect: (Bool, String) -> Void) {
         testControlPreviews(expect)
         testToolShortcuts(expect)
+        testDiagramShapes(expect)
         testEditing(expect)
         testSelection(expect)
         testShapeStyles(expect)
@@ -319,6 +320,41 @@ enum AnnotationTests {
         expect(document.elements == [text], "text and inspector style edits undo in one transaction")
         for language in AppLanguage.allCases {
             expect(AnnotationTextStrings.labels(language).count == 11, "text inspector localized for \(language)")
+        }
+    }
+
+    private static func testDiagramShapes(_ expect: (Bool, String) -> Void) {
+        let bounds = CGRect(x: 30, y: 20, width: 140, height: 120)
+        for shape in AnnotationStyle.Shape.allCases.filter(\.isDiagram) {
+            var style = AnnotationStyle(color: .red, width: 3)
+            style.shape = shape
+            let path = AnnotationDiagramGeometry.path(in: bounds, style: style)
+            expect(!path.isEmpty && bounds.insetBy(dx: -0.1, dy: -0.1).contains(path.boundingBoxOfPath),
+                   "\(shape) vector geometry stays within its editable bounds")
+            let element = AnnotationElement(tool: .rect, rect: bounds, style: style)
+            let pixels = bitmap { AnnotationRenderer.draw(element, in: $0, scale: 1, shadowsEnabled: false) }
+            expect(pixels?.contains(where: { $0 != 0 }) == true, "\(shape) renders through the shared export path")
+            let resized = AnnotationEditGesture(original: element, anchor: .zero, handle: .resize(.bottomRight))
+                .updated(to: CGPoint(x: 190, y: 180))
+            expect(resized.resolvedStyle.shape == shape && resized.rect.width > element.rect.width,
+                   "diagram resize preserves the editable shape type")
+        }
+        var gridStyle = AnnotationStyle(color: .red, width: 3)
+        gridStyle.shape = .grid
+        gridStyle.gridRows = 0
+        gridStyle.gridColumns = Int.max
+        let sanitized = gridStyle.sanitized()
+        expect(sanitized.gridRows == 1 && sanitized.gridColumns == 12, "grid dimensions stay bounded")
+        var axes = gridStyle
+        axes.shape = .axes
+        axes.fill = .solid
+        expect(axes.sanitized().fill == .none, "axes do not acquire unintended triangular fills")
+        let ticked = AnnotationDiagramGeometry.path(in: bounds, style: axes)
+        axes.axisTicks = false
+        let plain = AnnotationDiagramGeometry.path(in: bounds, style: axes)
+        expect(ticked != plain, "axis ticks can be disabled without changing the axes tool")
+        for language in AppLanguage.allCases {
+            expect(AnnotationDiagramStrings.labels(language).count == 8, "diagram controls localized for \(language)")
         }
     }
 

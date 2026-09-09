@@ -43,8 +43,17 @@ enum AnnotationToolShortcuts {
         Entry(choice: .tool(.highlighter), keys: ["H"]),
         Entry(choice: .tool(.text), keys: ["8", "T"]),
         Entry(choice: .tool(.eraser), keys: ["0", "Shift-E"]),
-        Entry(choice: .tool(.redact), keys: [])
+        Entry(choice: .tool(.redact), keys: []),
+        Entry(choice: .shape(.database), keys: ["D"]),
+        Entry(choice: .shape(.queue), keys: ["Q"]),
+        Entry(choice: .shape(.person), keys: ["U"]),
+        Entry(choice: .shape(.grid), keys: ["G"]),
+        Entry(choice: .shape(.axes), keys: ["X"])
     ]
+
+    static func hint(for choice: AnnotationToolChoice) -> String? {
+        entries.first { $0.choice == choice }?.keys.first
+    }
 
     static func resolve(keyCode: Int, characters: String?, shift: Bool,
                         hasApplicationModifier: Bool, isTyping: Bool = false) -> AnnotationToolChoice? {

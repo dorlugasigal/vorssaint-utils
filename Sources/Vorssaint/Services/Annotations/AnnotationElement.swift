@@ -80,7 +80,7 @@ struct AnnotationElement: Identifiable, Equatable {
 struct AnnotationStyle: Equatable {
     enum Fill: Int, CaseIterable { case none, solid, hatch, crossHatch }
     enum Pattern: Int, CaseIterable { case solid, dashed, dotted }
-    enum Shape: Int, CaseIterable { case standard, diamond }
+    enum Shape: Int, CaseIterable { case standard, diamond, database, queue, person, grid, axes }
     enum FontFamily: Int, CaseIterable { case system, serif, monospace, handwriting }
     enum Alignment: Int, CaseIterable { case left, center, right }
     enum Pressure: Int, CaseIterable { case constant, hardware, simulated }
@@ -96,6 +96,9 @@ struct AnnotationStyle: Equatable {
     var pattern: Pattern = .solid
     var shape: Shape = .standard
     var roundness: CGFloat = 0
+    var gridRows = 4
+    var gridColumns = 4
+    var axisTicks = true
     var curved = false
     var multiClick = false
     var startHead: AnnotationArrowhead = .none
@@ -110,6 +113,9 @@ struct AnnotationStyle: Equatable {
 
     func sanitized() -> AnnotationStyle {
         var result = self
+        result.gridRows = min(max(gridRows, 1), 12)
+        result.gridColumns = min(max(gridColumns, 1), 12)
+        if shape == .axes { result.fill = .none }
         result.color = color.clamped()
         result.fillColor = fillColor.clamped()
         result.roundness = roundness.isFinite ? min(max(roundness, 0), 1) : 0
@@ -154,7 +160,9 @@ enum AnnotationGeometry {
         let path = CGMutablePath()
         switch element.tool {
         case .rect:
-            if element.resolvedStyle.shape == .diamond {
+            if element.resolvedStyle.shape.isDiagram {
+                path.addPath(AnnotationDiagramGeometry.path(in: element.rect, style: element.resolvedStyle))
+            } else if element.resolvedStyle.shape == .diamond {
                 let rect = element.rect
                 path.move(to: CGPoint(x: rect.midX, y: rect.minY))
                 path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
