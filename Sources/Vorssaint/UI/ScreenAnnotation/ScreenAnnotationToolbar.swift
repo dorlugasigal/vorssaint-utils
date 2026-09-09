@@ -29,7 +29,7 @@ private struct AnnotationToolbarView: View {
                     .buttonStyle(.borderless)
                     .background(service.tool == tool ? Color.accentColor.opacity(0.22) : .clear,
                                 in: RoundedRectangle(cornerRadius: 7))
-                    .help(tool.rawValue.capitalized)
+                    .help(toolTitle(tool))
                 }
             }
             Divider()
@@ -45,8 +45,6 @@ private struct AnnotationToolbarView: View {
                     .buttonStyle(.borderless)
                 }
                 Divider().frame(height: 20)
-                Slider(value: Binding(get: { service.width }, set: service.setWidth), in: 1...40)
-                    .frame(width: 90)
                 Button { service.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .help(strings.undo)
                     .disabled(!service.canUndo)
@@ -57,11 +55,14 @@ private struct AnnotationToolbarView: View {
                 Button { service.clearAll() } label: { Image(systemName: "trash") }
                     .help(strings.clear)
             }
+            AnnotationInspector(style: Binding(get: { service.inspectorStyle }, set: service.setInspectorStyle),
+                                editingChanged: service.styleEditingChanged)
             HStack {
                 Button { service.toggleDrawing() } label: {
                     Label(AnnotationSessionStrings.mode(service.isDrawingActive, localization.language),
                           systemImage: service.isDrawingActive ? "pencil.tip" : "cursorarrow")
                 }
+
                 Spacer()
                 Button { service.hideOverlay() } label: { Image(systemName: "xmark") }
                     .help(strings.exit)
@@ -71,6 +72,22 @@ private struct AnnotationToolbarView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func toolTitle(_ tool: AnnotationTool) -> String {
+        let screenshot = FeatureStrings.screenshot(localization.language)
+        switch tool {
+        case .select: return screenshot.toolSelect
+        case .pen: return strings.pen
+        case .highlighter: return strings.highlighter
+        case .arrow: return screenshot.toolArrow
+        case .line: return screenshot.toolLine
+        case .rectangle: return screenshot.toolRect
+        case .ellipse: return screenshot.toolEllipse
+        case .text: return screenshot.toolText
+        case .redact: return screenshot.toolRedact
+        case .eraser: return localization.s.actionRemove
+        }
     }
 
     private func toolSymbol(_ tool: AnnotationTool) -> String {

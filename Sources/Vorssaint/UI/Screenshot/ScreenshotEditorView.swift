@@ -43,6 +43,12 @@ struct ScreenshotEditorView: View {
                 topBand
                     .padding(.top, 10)
                     .padding(.horizontal, 12)
+                if model.tool != .crop && model.tool != .pixelate
+                    && model.tool != .sticker && model.tool != .counter {
+                    AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
+                                        editingChanged: model.styleEditingChanged)
+                        .padding(.horizontal, 12)
+                }
                 HStack(spacing: 0) {
                     ScrollView(.vertical) {
                         toolRail

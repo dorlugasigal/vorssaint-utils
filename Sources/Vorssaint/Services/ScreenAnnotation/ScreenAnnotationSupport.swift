@@ -71,6 +71,7 @@ struct AnnotationColor: Codable, Equatable {
     let red: Double
     let green: Double
     let blue: Double
+    var alpha: Double = 1
 
     static let red = AnnotationColor(red: 0.95, green: 0.18, blue: 0.18)
     static let orange = AnnotationColor(red: 0.98, green: 0.36, blue: 0.02)
@@ -82,7 +83,8 @@ struct AnnotationColor: Codable, Equatable {
     static let white = AnnotationColor(red: 1, green: 1, blue: 1)
 
     func clamped() -> AnnotationColor {
-        AnnotationColor(red: red.clamped(to: 0...1), green: green.clamped(to: 0...1), blue: blue.clamped(to: 0...1))
+        AnnotationColor(red: red.clamped(to: 0...1), green: green.clamped(to: 0...1),
+                        blue: blue.clamped(to: 0...1), alpha: alpha.clamped(to: 0...1))
     }
 }
 
@@ -146,6 +148,6 @@ enum ScreenAnnotationSupport {
 
 private extension Double {
     func clamped(to range: ClosedRange<Double>) -> Double {
-        min(max(self, range.lowerBound), range.upperBound)
+        isFinite ? min(max(self, range.lowerBound), range.upperBound) : range.lowerBound
     }
 }

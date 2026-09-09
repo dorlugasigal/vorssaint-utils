@@ -42,6 +42,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     private var draftID: UUID?
     private var dragStart = CGPoint.zero
     private var editGesture: AnnotationEditGesture?
+    private var customStyle: AnnotationStyle?
     @Published private(set) var shortcutRegistrationFailed = false
 
     // Preferences (kept in sync with UserDefaults)
@@ -254,7 +255,17 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         p.ignoresMouseEvents = false
         p.contentViewController = host
+        p.isMovableByWindowBackground = true
         self.toolbarPanel = p
+        sessionObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: p, queue: .main) { [weak self] _ in
+                guard let self, let toolbar = self.toolbarPanel, let screen = self.sessionScreen else { return }
+                let frame = toolbar.frame
+                let visible = screen.visibleFrame
+                let origin = CGPoint(x: min(max(frame.minX, visible.minX), max(visible.minX, visible.maxX - frame.width)),
+                                     y: min(max(frame.minY, visible.minY), max(visible.minY, visible.maxY - frame.height)))
+                if frame.origin != origin { toolbar.setFrameOrigin(origin) }
+            })
     }
 
     // MARK: - Show
@@ -322,20 +333,49 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     func setColor(_ c: AnnotationColor) {
-        color = c
-        UserDefaults.standard.set("\(c.red),\(c.green),\(c.blue)",
-                                   forKey: DefaultsKey.screenAnnotationColor)
+        var style = inspectorStyle
+        style.color = c
+        setInspectorStyle(style)
     }
 
     func setWidth(_ w: Double) {
-        width = min(max(w, 1), 40)
-        UserDefaults.standard.set(width, forKey: DefaultsKey.screenAnnotationWidth)
+        var style = inspectorStyle
+        style.width = w
+        setInspectorStyle(style)
+    }
+
+    var inspectorStyle: AnnotationStyle {
+        strokes.first(where: { $0.id == selectedID })?.resolvedStyle ?? creationStyle
+    }
+
+    func styleEditingChanged(_ editing: Bool) {
+        if editing { document.begin() } else { document.commit(); refreshDocument() }
+    }
+
+    func setInspectorStyle(_ value: AnnotationStyle) {
+        let style = value.sanitized()
+        let continuous = document.history.isEditing
+        if !continuous { document.begin() }
+        if let selectedID, let index = strokes.firstIndex(where: { $0.id == selectedID }) {
+            strokes[index].style = style
+            if strokes[index].tool == .text { strokes[index].rect = AnnotationRenderer.textBounds(strokes[index], scale: 1) }
+        } else {
+            customStyle = style
+            color = style.color
+            width = style.width
+            UserDefaults.standard.set("\(color.red),\(color.green),\(color.blue),\(color.alpha)",
+                                      forKey: DefaultsKey.screenAnnotationColor)
+            UserDefaults.standard.set(width, forKey: DefaultsKey.screenAnnotationWidth)
+        }
+        if !continuous { document.commit() }
+        refreshDocument()
     }
 
     func colorForPreference(_ value: String) -> AnnotationColor {
         let parts = value.split(separator: ",").compactMap { Double($0) }
-        if parts.count == 3 {
-            return AnnotationColor(red: parts[0], green: parts[1], blue: parts[2]).clamped()
+        if parts.count == 3 || parts.count == 4 {
+            return AnnotationColor(red: parts[0], green: parts[1], blue: parts[2],
+                                   alpha: parts.count == 4 ? parts[3] : 1).clamped()
         }
         switch value {
         case "orange": return .orange
@@ -389,7 +429,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     private var creationStyle: AnnotationStyle {
-        AnnotationStyle(color: color, width: width, opacity: tool == .highlighter ? 0.35 : 1,
+        customStyle ?? AnnotationStyle(color: color, width: width, opacity: tool == .highlighter ? 0.35 : 1,
                         smooth: false, textSize: max(14, width * 3), mediumTextWeight: true)
     }
 

@@ -6,6 +6,19 @@ import AppKit
 enum AnnotationTests {
     static func run(_ expect: (Bool, String) -> Void) {
         testEditing(expect)
+        let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
+        for anchor in [CGRect(x: -1900, y: 1100, width: 50, height: 50),
+                       CGRect(x: -100, y: 2050, width: 50, height: 50)] {
+            let size = CGSize(width: 280, height: 420)
+            let origin = AnnotationPanelPlacement.origin(anchor: anchor, size: size, visibleFrame: visible)
+            expect(visible.contains(CGRect(origin: origin, size: size)),
+                   "custom color panel stays on its owner monitor at either edge")
+        }
+        let invalidStyle = AnnotationStyle(color: AnnotationColor(red: .nan, green: 2, blue: -2),
+                                           width: .infinity, opacity: .nan).sanitized()
+        expect(invalidStyle.color == AnnotationColor(red: 0, green: 1, blue: 0)
+            && invalidStyle.width == 6 && invalidStyle.opacity == 1,
+               "custom styles sanitize nonfinite channels and dimensions")
         let size = CGSize(width: 200, height: 200)
         for scale: CGFloat in [1, 2] {
             for tool: ScreenshotSupport.Tool in [.rect, .ellipse, .arrow, .line, .freehand, .redact, .highlight] {

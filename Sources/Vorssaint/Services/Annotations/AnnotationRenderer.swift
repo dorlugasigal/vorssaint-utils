@@ -8,7 +8,7 @@ import AppKit
 enum AnnotationRenderer {
     static func color(_ style: AnnotationStyle) -> NSColor {
         let rgb = style.color.clamped()
-        return NSColor(srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: style.opacity)
+        return NSColor(srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: rgb.alpha * style.opacity)
     }
 
     static func draw(_ annotation: AnnotationElement, in context: CGContext,
@@ -39,7 +39,7 @@ enum AnnotationRenderer {
             context.fillPath()
         case .highlight:
             context.setBlendMode(.multiply)
-            context.setFillColor(color(style).withAlphaComponent(0.42 * style.opacity).cgColor)
+            context.setFillColor(color(style).withAlphaComponent(0.42 * style.opacity * style.color.alpha).cgColor)
             context.fillPath()
         default:
             context.strokePath()

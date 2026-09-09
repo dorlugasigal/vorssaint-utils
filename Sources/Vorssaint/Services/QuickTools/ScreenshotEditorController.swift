@@ -127,6 +127,36 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var dragRegistered = false
     private var editingSelectedAnnotation = false
     private var newTextID: UUID?
+    private var annotationStyleDefaults: AnnotationStyle?
+
+    var inspectorStyle: AnnotationStyle {
+        annotations.first(where: { $0.id == selectedID })?.resolvedStyle
+            ?? annotationStyleDefaults
+            ?? AnnotationElement(tool: tool, color: color, stroke: stroke).resolvedStyle
+    }
+
+    func styleEditingChanged(_ editing: Bool) {
+        if editing { history.begin(snapshot) } else {
+            history.commit(snapshot)
+            refreshUndoFlags()
+            refreshDirtyState()
+        }
+    }
+
+    func setInspectorStyle(_ value: AnnotationStyle) {
+        let style = value.sanitized()
+        if let selectedID, let index = annotations.firstIndex(where: { $0.id == selectedID }) {
+            guard annotations[index].resolvedStyle != style else { return }
+            registerUndo()
+            annotations[index].style = style
+            if annotations[index].tool == .text {
+                annotations[index].rect = AnnotationRenderer.textBounds(annotations[index], scale: scale)
+            }
+        } else {
+            annotationStyleDefaults = style
+            objectWillChange.send()
+        }
+    }
 
     var imageSize: CGSize {
         CGSize(width: baseImage.width, height: baseImage.height)
@@ -444,6 +474,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         registerUndo()
         annotations[index].color = color
         annotations[index].stroke = stroke
+        if var style = annotations[index].style {
+            let rgb = color.components
+            style.color = AnnotationColor(red: rgb.red, green: rgb.green, blue: rgb.blue)
+            style.width = stroke.width
+            annotations[index].style = style
+        }
         if annotations[index].tool == .text {
             annotations[index].rect = ScreenshotRenderer.textBounds(
                 annotations[index].text,
@@ -498,14 +534,14 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             registerUndo()
             dragRegistered = true
             let annotation = ScreenshotSupport.Annotation(
-                tool: tool, points: [point, point], color: color, stroke: stroke)
+                tool: tool, points: [point, point], color: color, stroke: stroke, style: annotationStyleDefaults)
             annotations.append(annotation)
             draftID = annotation.id
         case .freehand:
             registerUndo()
             dragRegistered = true
             let annotation = ScreenshotSupport.Annotation(
-                tool: tool, points: [point], color: color, stroke: stroke)
+                tool: tool, points: [point], color: color, stroke: stroke, style: annotationStyleDefaults)
             annotations.append(annotation)
             draftID = annotation.id
         case .rect, .ellipse, .highlight, .pixelate, .redact:
@@ -514,7 +550,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             dragRegistered = true
             let annotation = ScreenshotSupport.Annotation(
                 tool: tool, rect: CGRect(origin: point, size: .zero),
-                color: color, stroke: stroke)
+                color: color, stroke: stroke, style: annotationStyleDefaults)
             annotations.append(annotation)
             draftID = annotation.id
         case .text, .sticker, .counter:

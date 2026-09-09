@@ -47,6 +47,15 @@ struct AnnotationStyle: Equatable {
     var smooth = true
     var textSize: CGFloat?
     var mediumTextWeight = false
+
+    func sanitized() -> AnnotationStyle {
+        var result = self
+        result.color = color.clamped()
+        result.width = width.isFinite ? min(max(width, 1), 40) : 6
+        result.opacity = opacity.isFinite ? min(max(opacity, 0), 1) : 1
+        if let textSize { result.textSize = textSize.isFinite ? min(max(textSize, 6), 240) : 19 }
+        return result
+    }
 }
 
 enum AnnotationGeometry {

@@ -2,6 +2,22 @@
 // Copyright (C) 2026 Vorssaint
 
 enum AnnotationSessionStrings {
+    static func opacity(_ language: AppLanguage) -> String {
+        switch language {
+        case .enUS: return "Opacity"
+        case .ptBR: return "Opacidade"
+        case .tr: return "Opaklık"
+        case .ru: return "Непрозрачность"
+        case .es: return "Opacidad"
+        case .de: return "Deckkraft"
+        case .fr: return "Opacité"
+        case .it: return "Opacità"
+        case .ja: return "不透明度"
+        case .ko: return "불투명도"
+        case .zhHans: return "不透明度"
+        case .zhTW, .zhHK: return "不透明度"
+        }
+    }
     static func mode(_ drawing: Bool, _ language: AppLanguage) -> String {
         let labels: (String, String)
         switch language {
