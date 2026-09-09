@@ -101,7 +101,13 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     // Entry point from menu / shortcut
     @objc func toggleOverlay() {
-        if canvasPanel != nil { closeSession() } else { toggleDrawing() }
+        if ScreenAnnotationSupport.activationClosesOverlay(
+            hasOverlay: canvasPanel != nil, isDrawing: isDrawingActive
+        ) {
+            closeSession()
+        } else {
+            openOverlay()
+        }
     }
 
     func openOverlay() {

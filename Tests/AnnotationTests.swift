@@ -537,6 +537,12 @@ enum AnnotationTests {
     private static func testToolShortcuts(_ expect: (Bool, String) -> Void) {
         expect(GlobalShortcut.screenAnnotationDefault.storageValue == "control:19",
                "screen annotation defaults to Control-2")
+        expect(!ScreenAnnotationSupport.activationClosesOverlay(hasOverlay: false, isDrawing: false),
+               "Control-2 opens drawing when no overlay exists")
+        expect(ScreenAnnotationSupport.activationClosesOverlay(hasOverlay: true, isDrawing: true),
+               "Control-2 closes an overlay that is already drawing")
+        expect(!ScreenAnnotationSupport.activationClosesOverlay(hasOverlay: true, isDrawing: false),
+               "Control-2 resumes drawing after Escape enters Interact without discarding annotations")
         for entry in AnnotationToolShortcuts.entries {
             for key in entry.keys {
                 let shift = key == "Shift-E"

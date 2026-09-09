@@ -95,6 +95,10 @@ enum ScreenAnnotationSupport {
     /// screen, but it must stop participating in hit testing outside drawing.
     static func canvasIgnoresMouseEvents(isDrawing: Bool) -> Bool { !isDrawing }
 
+    static func activationClosesOverlay(hasOverlay: Bool, isDrawing: Bool) -> Bool {
+        hasOverlay && isDrawing
+    }
+
     static func normalized(point: AnnotationPoint, in size: (width: Double, height: Double)) -> AnnotationPoint {
         AnnotationPoint(x: (point.x / max(size.width, 1)).clamped(to: 0...1),
                         y: (point.y / max(size.height, 1)).clamped(to: 0...1))
