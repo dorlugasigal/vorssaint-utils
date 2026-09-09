@@ -16,6 +16,7 @@ enum AnnotationLinear {
     static func creationStyle(for tool: ScreenshotSupport.Tool, base: AnnotationStyle) -> AnnotationStyle {
         var style = base
         style.curved = tool == .arrow
+        if tool == .arrow { style.endHead = .arrow }
         return style
     }
 

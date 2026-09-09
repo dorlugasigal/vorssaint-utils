@@ -589,6 +589,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                         width: width, opacity: tool == .highlighter ? 0.35 : 1,
                         smooth: false, textSize: max(14, width * 3), mediumTextWeight: true,
                         curved: tool == .arrow,
+                        endHead: tool == .arrow ? .arrow : .legacy,
                         isHighlighter: tool == .highlighter)
     }
 

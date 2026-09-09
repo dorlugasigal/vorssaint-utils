@@ -556,6 +556,9 @@ enum AnnotationTests {
         let base = AnnotationStyle(color: .red, width: 4)
         expect(AnnotationLinear.creationStyle(for: .arrow, base: base).curved,
                "new arrows default to curved routing")
+        expect(AnnotationLinear.creationStyle(for: .arrow, base: base).endHead == .arrow
+               && AnnotationElement(tool: .arrow).resolvedStyle.endHead == .legacy,
+               "new arrows use open heads without restyling existing legacy screenshot arrows")
         expect(!AnnotationLinear.creationStyle(for: .line, base: base).curved
                && !AnnotationElement(tool: .arrow).resolvedStyle.curved,
                "straight line defaults and existing legacy annotation styles remain unchanged")
