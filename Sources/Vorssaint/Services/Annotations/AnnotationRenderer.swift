@@ -44,7 +44,9 @@ enum AnnotationRenderer {
         }
         context.addPath(path)
         switch annotation.tool {
-        case .arrow, .redact:
+        case .arrow where AnnotationLinear.usesLegacyArrow(annotation):
+            context.fillPath()
+        case .redact:
             context.fillPath()
         case .highlight:
             context.setBlendMode(.multiply)
@@ -52,6 +54,13 @@ enum AnnotationRenderer {
             context.fillPath()
         default:
             context.strokePath()
+        }
+        if (annotation.tool == .arrow || annotation.tool == .line) && !AnnotationLinear.usesLegacyArrow(annotation) {
+            context.setLineDash(phase: 0, lengths: [])
+            for (head, filled) in AnnotationLinear.heads(annotation, scale: scale) {
+                context.addPath(head)
+                filled ? context.fillPath() : context.strokePath()
+            }
         }
     }
 

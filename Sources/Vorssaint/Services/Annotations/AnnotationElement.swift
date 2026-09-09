@@ -19,6 +19,7 @@ struct AnnotationElement: Identifiable, Equatable {
     var rotation: CGFloat = 0
     var groupID: UUID?
     var isLocked = false
+    var controls: [CGPoint] = []
 
     init(id: UUID = UUID(), tool: ScreenshotSupport.Tool, rect: CGRect = .zero,
          points: [CGPoint] = [], text: String = "", color: ScreenshotSupport.ColorID = .red,
@@ -58,12 +59,18 @@ struct AnnotationStyle: Equatable {
     var pattern: Pattern = .solid
     var shape: Shape = .standard
     var roundness: CGFloat = 0
+    var curved = false
+    var multiClick = false
+    var startHead: AnnotationArrowhead = .none
+    var endHead: AnnotationArrowhead = .legacy
+    var headSize: CGFloat = 1
 
     func sanitized() -> AnnotationStyle {
         var result = self
         result.color = color.clamped()
         result.fillColor = fillColor.clamped()
         result.roundness = roundness.isFinite ? min(max(roundness, 0), 1) : 0
+        result.headSize = headSize.isFinite ? min(max(headSize, 1), 1.75) : 1
         result.width = width.isFinite ? min(max(width, 1), 40) : 6
         result.opacity = opacity.isFinite ? min(max(opacity, 0), 1) : 1
         if let textSize { result.textSize = textSize.isFinite ? min(max(textSize, 6), 240) : 19 }
@@ -109,13 +116,13 @@ enum AnnotationGeometry {
             path.addRect(element.rect)
         case .ellipse:
             path.addEllipse(in: element.rect)
-        case .arrow:
-            if element.points.count >= 2 {
+        case .arrow, .line:
+            if AnnotationLinear.usesLegacyArrow(element) {
                 path.addPath(ScreenshotSupport.arrowSilhouette(
                     from: element.points[0], to: element.points[1],
                     strokeWidth: element.resolvedStyle.width))
-            }
-        case .freehand, .line:
+            } else { path.addPath(AnnotationLinear.path(element)) }
+        case .freehand:
             guard let first = element.points.first else { return path }
             path.move(to: first)
             for index in 1..<element.points.count {
@@ -146,7 +153,14 @@ enum AnnotationGeometry {
             style.width *= scale
             scaled.style = style
             let geometry = path(scaled)
-            if element.tool == .arrow && geometry.contains(point) { return true }
+            if AnnotationLinear.usesLegacyArrow(element) && geometry.contains(point) { return true }
+            if element.tool == .arrow || element.tool == .line {
+                for (head, filled) in AnnotationLinear.heads(element, scale: scale) {
+                    if filled && head.contains(point) { return true }
+                    if head.copy(strokingWithWidth: 2 * tolerance, lineCap: .round,
+                                 lineJoin: .round, miterLimit: 10).contains(point) { return true }
+                }
+            }
             return geometry.copy(strokingWithWidth: 2 * tolerance + style.width,
                                  lineCap: .round, lineJoin: .round, miterLimit: 10).contains(point)
         case .counter:

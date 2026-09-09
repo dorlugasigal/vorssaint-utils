@@ -8,6 +8,7 @@ enum AnnotationTests {
         testEditing(expect)
         testSelection(expect)
         testShapeStyles(expect)
+        testLinear(expect)
         let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
         for anchor in [CGRect(x: -1900, y: 1100, width: 50, height: 50),
                        CGRect(x: -100, y: 2050, width: 50, height: 50)] {
@@ -187,6 +188,49 @@ enum AnnotationTests {
                "rounded rectangle uses rounded geometry for rendering and selection")
         for language in AppLanguage.allCases {
             expect(AnnotationStyleStrings.labels(language).count == 11, "shape styles localized for \(language)")
+        }
+    }
+
+    private static func testLinear(_ expect: (Bool, String) -> Void) {
+        var element = AnnotationElement(tool: .arrow, points: [CGPoint(x: 20, y: 80), CGPoint(x: 160, y: 80)])
+        expect(AnnotationLinear.usesLegacyArrow(element), "default screenshot arrow retains legacy silhouette")
+        var style = element.resolvedStyle
+        for head in AnnotationArrowhead.allCases {
+            for size: CGFloat in [1, 1.35, 1.75] {
+                style.endHead = head
+                style.headSize = size
+                element.style = style
+                let pixels = bitmap { AnnotationRenderer.draw(element, in: $0, scale: 1, shadowsEnabled: false) }
+                expect(pixels != nil, "arrowhead \(head) size \(size) renders")
+                expect(element.tool == .arrow, "headless and custom heads retain arrow creation identity")
+                for (path, _) in AnnotationLinear.heads(element, scale: 1) {
+                    expect(!path.isEmpty && path.boundingBoxOfPath.minX.isFinite,
+                           "arrowhead has finite nonempty geometry")
+                }
+            }
+        }
+        style.curved = true
+        element.style = style
+        element.points = [CGPoint(x: 20, y: 90), CGPoint(x: 90, y: 30), CGPoint(x: 160, y: 90)]
+        expect(AnnotationLinear.controls(element).count == 4, "curve supplies editable controls for each segment")
+        let control = AnnotationLinear.controls(element)[0]
+        let gesture = AnnotationEditGesture(original: element, anchor: control, handle: .control(0))
+        let edited = gesture.updated(to: CGPoint(x: 45, y: 10))
+        expect(edited.controls[0] == CGPoint(x: 45, y: 10) && edited.points == element.points,
+               "editing a curve control does not move vertices")
+        var construction = AnnotationLinearConstruction(element: element, at: CGPoint(x: 10, y: 10))
+        expect(construction.completed == nil, "single click cannot commit a degenerate line")
+        construction.preview = CGPoint(x: 100, y: 30)
+        expect(construction.completed == nil && construction.displayed.points.count == 2,
+               "preview does not finalize a multi-click vertex")
+        construction.add(CGPoint(x: 100, y: 30))
+        construction.add(CGPoint(x: 100, y: 30))
+        expect(construction.completed?.points.count == 2, "duplicate clicks do not add duplicate vertices")
+        expect(abs(AnnotationLinear.constrained(CGPoint(x: 20, y: 19), from: .zero).x
+            - AnnotationLinear.constrained(CGPoint(x: 20, y: 19), from: .zero).y) < 0.001,
+               "shift constraint snaps to 45 degree directions")
+        for language in AppLanguage.allCases {
+            expect(AnnotationLinearStrings.labels(language).count == 21, "linear inspector localized for \(language)")
         }
     }
 

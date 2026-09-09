@@ -46,7 +46,8 @@ struct ScreenshotEditorView: View {
                 if model.tool != .crop && model.tool != .pixelate
                     && model.tool != .sticker && model.tool != .counter {
                     AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
-                                        editingChanged: model.styleEditingChanged, tool: model.inspectorTool)
+                                        editingChanged: model.styleEditingChanged, tool: model.inspectorTool,
+                                        editPoints: model.editLinearPoints)
                         .padding(.horizontal, 12)
                 }
                 HStack(spacing: 0) {
@@ -82,6 +83,10 @@ struct ScreenshotEditorView: View {
         ZStack {
             BrandMark(width: 40, tint: Color(white: 0.92))
             HStack {
+                if model.hasLinearConstruction {
+                    Button(strings.done, action: model.finishLinearConstruction)
+                    Button(strings.cancel, action: model.cancelLinearConstruction)
+                }
                 AnnotationSelectionMenu(hasSelection: !model.selectedIDs.isEmpty, perform: model.performSelectionAction)
                 Spacer()
                 actionCluster
@@ -207,6 +212,7 @@ struct ScreenshotEditorView: View {
             switch phase {
             case .active(let location):
                 let point = imagePoint(from: location, zoom: zoom)
+                model.previewLinear(at: point)
                 if model.tool != .select, model.selectedAnnotationOwns(point) {
                     NSCursor.openHand.set()
                 } else if model.tool != .select {
@@ -478,7 +484,7 @@ struct ScreenshotEditorView: View {
         cg.setLineWidth(1.5 * scale)
         cg.setLineDash(phase: 0, lengths: [4 * scale, 3 * scale])
         if selected.points.count >= 2, selected.tool != .freehand, !selected.isLocked {
-            for point in selected.points.prefix(2) {
+            for point in selected.points + (selected.resolvedStyle.curved ? AnnotationLinear.controls(selected) : []) {
                 cg.setFillColor(CGColor(gray: 1, alpha: 1))
                 let handle = CGRect(x: point.x - 4 * scale, y: point.y - 4 * scale,
                                     width: 8 * scale, height: 8 * scale)

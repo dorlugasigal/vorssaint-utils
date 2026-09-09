@@ -45,6 +45,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     private var groupGestures: [AnnotationEditGesture] = []
     private(set) var marquee: CGRect?
     private var marqueeSelection: Set<UUID> = []
+    private var linearConstruction: AnnotationLinearConstruction?
+    var hasLinearConstruction: Bool { linearConstruction != nil }
     var selectedIDs: Set<UUID> { document.selectedIDs }
     private var toolStyles: [AnnotationTool: AnnotationStyle] = [:]
     enum Background: Int { case transparent, white, black }
@@ -134,6 +136,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         editGesture = nil
         groupGestures.removeAll()
         marquee = nil
+        linearConstruction = nil
         refreshDocument()
     }
 
@@ -321,6 +324,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                         return nil
                     }
                     switch Int(event.keyCode) {
+                    case kVK_Return, kVK_ANSI_KeypadEnter:
+                        if self.hasLinearConstruction { self.finishLinearConstruction(); return nil }
                     case kVK_Delete, kVK_ForwardDelete:
                         self.deleteSelected()
                         return nil
@@ -427,6 +432,12 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - Stroke entry points (called from AnnotationDrawingView)
 
     fileprivate func beginStroke(at p: NSPoint, bounds: CGRect, extendingSelection: Bool = false) {
+        if var construction = linearConstruction {
+            construction.add(p)
+            linearConstruction = construction
+            updateLinearPreview()
+            return
+        }
         cancelGesture()
         dragStart = p
         if tool == .select, extendingSelection, let hit = hitTest(p, bounds: bounds) {
@@ -483,6 +494,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             points: tool.isRectangular ? [] : [p, p], style: creationStyle)
         strokes.append(element)
         draftID = element.id
+        if (elementTool == .arrow || elementTool == .line) && creationStyle.multiClick {
+            linearConstruction = AnnotationLinearConstruction(element: element, at: p)
+            refreshDocument()
+        }
     }
 
     private var creationStyle: AnnotationStyle {
@@ -512,6 +527,13 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     fileprivate func continueStroke(at p: NSPoint, bounds: CGRect) {
+        let p = NSEvent.modifierFlags.contains(.shift) && (tool == .arrow || tool == .line)
+            && editGesture == nil && groupGestures.isEmpty ? AnnotationLinear.constrained(p, from: dragStart) : p
+        if linearConstruction != nil {
+            linearConstruction?.preview = p
+            updateLinearPreview()
+            return
+        }
         if marquee != nil {
             marquee = ScreenshotSupport.selectionRect(from: dragStart, to: p)
             document.selectedIDs = marqueeSelection.union(AnnotationSelection.marquee(marquee!, elements: strokes))
@@ -544,6 +566,11 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     fileprivate func finishStroke(at point: CGPoint, bounds: CGRect) {
+        if linearConstruction != nil {
+            linearConstruction?.add(point)
+            updateLinearPreview()
+            return
+        }
         continueStroke(at: point, bounds: bounds)
         if let draftID, hypot(point.x - dragStart.x, point.y - dragStart.y) < 1,
            tool != .pen && tool != .highlighter {
@@ -556,6 +583,39 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         editGesture = nil
         groupGestures.removeAll()
         marquee = nil
+        refreshDocument()
+    }
+
+    private func updateLinearPreview() {
+        guard let construction = linearConstruction,
+              let index = strokes.firstIndex(where: { $0.id == construction.element.id }) else { return }
+        strokes[index] = construction.displayed
+        drawingView?.needsDisplay = true
+    }
+
+    func finishLinearConstruction() {
+        guard let construction = linearConstruction else { return }
+        guard let element = construction.completed,
+              let index = strokes.firstIndex(where: { $0.id == element.id }) else {
+            cancelGesture()
+            return
+        }
+        strokes[index] = element
+        selectedID = element.id
+        document.commit()
+        linearConstruction = nil
+        draftID = nil
+        refreshDocument()
+    }
+
+    func cancelLinearConstruction() { cancelGesture() }
+
+    func editLinearPoints(_ insert: Bool) {
+        document.edit { state in
+            for index in state.elements.indices where state.selection.contains(state.elements[index].id) {
+                AnnotationLinear.editPoints(insert, in: &state.elements[index])
+            }
+        }
         refreshDocument()
     }
 
@@ -687,6 +747,16 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
                 ctx.setLineWidth(2)
                 ctx.setLineDash(phase: 0, lengths: [5, 3])
                 ctx.stroke(AnnotationGeometry.visualBounds(stroke).insetBy(dx: -6, dy: -6))
+                if !stroke.isLocked && (stroke.tool == .arrow || stroke.tool == .line) {
+                    ctx.setLineDash(phase: 0, lengths: [])
+                    ctx.setFillColor(NSColor.white.cgColor)
+                    let handles = stroke.points + (stroke.resolvedStyle.curved ? AnnotationLinear.controls(stroke) : [])
+                    for point in handles {
+                        let rect = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
+                        ctx.fillEllipse(in: rect)
+                        ctx.strokeEllipse(in: rect)
+                    }
+                }
                 ctx.restoreGState()
             }
         }
@@ -739,6 +809,12 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
         guard let svc = service, svc.isDrawingActive, isDragging else { return }
         let point = convert(event.locationInWindow, from: nil)
         svc.continueStroke(at: point, bounds: bounds)
+        needsDisplay = true
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard let service, service.hasLinearConstruction else { return }
+        service.continueStroke(at: convert(event.locationInWindow, from: nil), bounds: bounds)
         needsDisplay = true
     }
 

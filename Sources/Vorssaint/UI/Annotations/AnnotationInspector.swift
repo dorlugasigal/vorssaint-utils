@@ -8,6 +8,7 @@ struct AnnotationInspector: View {
     @Binding var style: AnnotationStyle
     var editingChanged: (Bool) -> Void
     var tool: ScreenshotSupport.Tool
+    var editPoints: (Bool) -> Void = { _ in }
     @ObservedObject private var localization = L10n.shared
 
     private var strings: ScreenshotFeatureStrings { FeatureStrings.screenshot(localization.language) }
@@ -28,7 +29,7 @@ struct AnnotationInspector: View {
                 .frame(width: 85)
                 .accessibilityLabel(AnnotationSessionStrings.opacity(localization.language))
             }
-            if tool == .rect || tool == .ellipse || tool == .line || tool == .freehand {
+            if tool == .rect || tool == .ellipse || tool == .line || tool == .arrow || tool == .freehand {
                 HStack(spacing: 10) {
                     Picker(AnnotationStyleStrings.pattern(localization.language), selection: $style.pattern) {
                         ForEach(AnnotationStyle.Pattern.allCases, id: \.rawValue) { pattern in
@@ -60,6 +61,30 @@ struct AnnotationInspector: View {
                         .frame(width: 100)
                         .accessibilityLabel(AnnotationStyleStrings.roundness(localization.language))
                 }
+            }
+            if tool == .line || tool == .arrow {
+                let labels = AnnotationLinearStrings.labels(localization.language)
+                HStack {
+                    Toggle(labels[14], isOn: $style.curved)
+                    Toggle(labels[15], isOn: $style.multiClick)
+                    Button { editPoints(true) } label: { Image(systemName: "plus.circle") }.help(labels[19])
+                    Button { editPoints(false) } label: { Image(systemName: "minus.circle") }.help(labels[20])
+                }
+                HStack {
+                    Picker(labels[16], selection: $style.startHead) {
+                        ForEach(AnnotationArrowhead.allCases, id: \.rawValue) { head in
+                            Text(AnnotationLinearStrings.head(head, localization.language)).tag(head)
+                        }
+                    }
+                    Picker(labels[17], selection: $style.endHead) {
+                        ForEach(AnnotationArrowhead.allCases, id: \.rawValue) { head in
+                            Text(AnnotationLinearStrings.head(head, localization.language)).tag(head)
+                        }
+                    }
+                }
+                Slider(value: $style.headSize, in: 1...1.75, onEditingChanged: editingChanged)
+                    .frame(width: 120)
+                    .accessibilityLabel(labels[18])
             }
         }
     }

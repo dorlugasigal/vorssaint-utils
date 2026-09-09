@@ -39,6 +39,7 @@ enum AnnotationSelection {
                     text: original.text, color: original.color, stroke: original.stroke,
                     number: original.number, style: original.style)
                 copy.rotation = original.rotation
+                copy.controls = original.controls.map { CGPoint(x: $0.x + 16, y: $0.y + 16) }
                 if let group = original.groupID {
                     if groups[group] == nil { groups[group] = UUID() }
                     copy.groupID = groups[group]
@@ -93,6 +94,7 @@ enum AnnotationSelection {
                 let old = AnnotationGeometry.bounds(element)
                 if !element.points.isEmpty {
                     element.points = element.points.map { $0.applying(transform) }
+                    element.controls = element.controls.map { $0.applying(transform) }
                     state.elements[index] = element
                     continue
                 }

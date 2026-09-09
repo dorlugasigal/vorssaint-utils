@@ -260,10 +260,12 @@ if (( TEST )); then
         Sources/Vorssaint/Core/FeatureCatalog.swift \
         Sources/Vorssaint/Services/ScreenAnnotation/ScreenAnnotationSupport.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationElement.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationLinear.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationDocument.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationSelection.swift \
         Sources/Vorssaint/Core/AnnotationCommandStrings.swift \
         Sources/Vorssaint/Core/AnnotationStyleStrings.swift \
+        Sources/Vorssaint/Core/AnnotationLinearStrings.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationPanelPlacement.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationRenderer.swift \
         Sources/Vorssaint/Core/FeaturePresets.swift \

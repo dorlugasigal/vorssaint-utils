@@ -20,6 +20,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     @Published var editingTextID: UUID?
     @Published var tool: ScreenshotSupport.Tool {
         didSet {
+            if tool != oldValue, linearConstruction != nil { cancelLinearConstruction() }
             UserDefaults.standard.set(tool.rawValue, forKey: DefaultsKey.screenshotLastTool)
             if tool != .select { clearTextSelection() }
             if tool != oldValue, tool != .select {
@@ -129,6 +130,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     @Published private(set) var selectionMarquee: CGRect?
     private var additiveSelection = false
     private var marqueeSelection: Set<UUID> = []
+    private var linearConstruction: AnnotationLinearConstruction?
+    var hasLinearConstruction: Bool { linearConstruction != nil }
     private var activeHandle: ScreenshotSupport.Handle?
     private var cropResizeOrigin: CGRect?
     private var cropMoveOrigin: CGRect?
@@ -425,11 +428,13 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     func undo() {
+        if linearConstruction != nil { cancelLinearConstruction(); return }
         guard let last = history.undo(snapshot) else { return }
         restore(last)
     }
 
     func redo() {
+        if linearConstruction != nil { cancelLinearConstruction(); return }
         guard let next = history.redo(snapshot) else { return }
         restore(next)
     }
@@ -520,6 +525,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     // MARK: - Gestures (image-pixel coordinates)
 
     func beginDrag(at point: CGPoint, extendingSelection: Bool = false) {
+        if var construction = linearConstruction {
+            construction.add(point)
+            linearConstruction = construction
+            previewLinear(at: point)
+            return
+        }
         history.begin(snapshot)
         dragStart = point
         dragRegistered = false
@@ -561,6 +572,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
                 tool: tool, points: [point, point], color: color, stroke: stroke, style: annotationStyleDefaults)
             annotations.append(annotation)
             draftID = annotation.id
+            if inspectorStyle.multiClick {
+                linearConstruction = AnnotationLinearConstruction(element: annotation, at: point)
+            }
         case .freehand:
             registerUndo()
             dragRegistered = true
@@ -615,6 +629,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     func continueDrag(to point: CGPoint) {
+        let point = NSEvent.modifierFlags.contains(.shift) && (tool == .arrow || tool == .line)
+            && !editingSelectedAnnotation ? AnnotationLinear.constrained(point, from: dragStart) : point
+        if linearConstruction != nil { previewLinear(at: point); return }
         if editingSelectedAnnotation {
             continueSelectDrag(to: point)
             return
@@ -682,6 +699,11 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// click at any zoom level; deciding it here in image pixels made taps
     /// on zoomed-out Retina captures read as drags (the text tool bug).
     func endDrag(at point: CGPoint, isTap: Bool) {
+        if linearConstruction != nil {
+            linearConstruction?.add(point)
+            previewLinear(at: point)
+            return
+        }
         defer {
             history.commit(snapshot)
             refreshUndoFlags()
@@ -770,6 +792,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
               let selected = annotations.first(where: { $0.id == selectedID })
         else { return false }
         let tolerance = 12 * scale
+        if AnnotationEditGesture.handle(for: selected, at: point, tolerance: tolerance) != nil { return true }
         if selected.tool.resizesWithHandles,
            ScreenshotSupport.handle(at: point, rect: selected.rect,
                                     tolerance: tolerance) != nil {
@@ -820,6 +843,46 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         clearTextSelection()
         tool = .select
         return true
+    }
+
+    func previewLinear(at point: CGPoint) {
+        guard var construction = linearConstruction,
+              let index = annotations.firstIndex(where: { $0.id == construction.element.id }) else { return }
+        construction.preview = point
+        linearConstruction = construction
+        annotations[index] = construction.displayed
+    }
+
+    func finishLinearConstruction() {
+        guard let construction = linearConstruction else { return }
+        guard let element = construction.completed,
+              let index = annotations.firstIndex(where: { $0.id == element.id }) else {
+            cancelLinearConstruction()
+            return
+        }
+        annotations[index] = element
+        selectedID = element.id
+        linearConstruction = nil
+        draftID = nil
+        history.commit(snapshot)
+        refreshUndoFlags()
+        refreshDirtyState()
+    }
+
+    func cancelLinearConstruction() {
+        if let original = history.cancel() { restore(original) }
+        linearConstruction = nil
+        draftID = nil
+    }
+
+    func editLinearPoints(_ insert: Bool) {
+        var updated = annotations
+        for index in updated.indices where selectedIDs.contains(updated[index].id) {
+            AnnotationLinear.editPoints(insert, in: &updated[index])
+        }
+        guard updated != annotations else { return }
+        registerUndo()
+        annotations = updated
     }
 
     private func updateDraft(_ mutate: (inout ScreenshotSupport.Annotation) -> Void) {
@@ -1117,6 +1180,10 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
             model.deleteSelected()
             return true
         case kVK_Return, kVK_ANSI_KeypadEnter:
+            if model.hasLinearConstruction {
+                model.finishLinearConstruction()
+                return true
+            }
             if model.tool == .crop, model.cropDraft != nil {
                 model.applyCrop()
             } else {

@@ -103,6 +103,7 @@ struct AnnotationEditGesture {
         case move
         case resize(ScreenshotSupport.Handle)
         case point(Int)
+        case control(Int)
     }
     let original: AnnotationElement
     let anchor: CGPoint
@@ -116,6 +117,12 @@ struct AnnotationEditGesture {
             if let index = element.points.indices.first(where: {
                 hypot(element.points[$0].x - point.x, element.points[$0].y - point.y) <= tolerance
             }) { return .point(index) }
+            if element.resolvedStyle.curved {
+                let controls = AnnotationLinear.controls(element)
+                if let index = controls.indices.first(where: {
+                    hypot(controls[$0].x - point.x, controls[$0].y - point.y) <= tolerance
+                }) { return .control(index) }
+            }
         }
         if element.tool.resizesWithHandles,
            let handle = ScreenshotSupport.handle(at: point, rect: element.rect, tolerance: tolerance) {
@@ -132,9 +139,14 @@ struct AnnotationEditGesture {
             let delta = CGPoint(x: point.x - anchor.x, y: point.y - anchor.y)
             result.rect = original.rect.offsetBy(dx: delta.x, dy: delta.y)
             result.points = original.points.map { CGPoint(x: $0.x + delta.x, y: $0.y + delta.y) }
+            result.controls = original.controls.map { CGPoint(x: $0.x + delta.x, y: $0.y + delta.y) }
+        case .control(let index):
+            result.controls = AnnotationLinear.controls(original)
+            result.controls[index] = point
         case .point(let index):
             if result.points.indices.contains(index) {
                 result.points[index] = point.applying(AnnotationGeometry.transform(original).inverted())
+                result.controls = []
             }
         case .resize(let handle):
             result.rect = ScreenshotSupport.resizedRect(original.rect, dragging: handle,
