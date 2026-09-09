@@ -12,6 +12,7 @@ enum AnnotationTests {
         testStraightLineTool(expect)
         testToolbarExpansion(expect)
         testTextPlacement(expect)
+        testGrowingTextEditor(expect)
         testToolShortcuts(expect)
         testDiagramShapes(expect)
         testCurveControlPreservation(expect)
@@ -174,6 +175,35 @@ enum AnnotationTests {
         document.redo()
         expect(document.elements.count == 2 && document.elements[1].tool == .arrow
                && document.elements[1].endBinding?.targetID == target.id, "redo restores recognized geometry and bindings")
+    }
+
+    private static func testGrowingTextEditor(_ expect: (Bool, String) -> Void) {
+        let bounds = CGRect(x: 0, y: 0, width: 3000, height: 2000)
+        for alignment in AnnotationStyle.Alignment.allCases {
+            for scale: CGFloat in [0.5, 1, 2] {
+                var style = AnnotationStyle(color: .blue, width: 4)
+                style.textAlignment = alignment
+                let text = AnnotationElement(tool: .text, rect: CGRect(x: 1000, y: 700, width: 900, height: 420),
+                                             style: style, centersTextVertically: true)
+                let frame = AnnotationTextPlacement.editorFrame(for: text,
+                    preferredSize: CGSize(width: 100 / scale, height: 80 / scale), bounds: bounds, viewScale: scale)
+                expect(frame.width > 400 && frame.height > 200 && frame.contains(text.rect),
+                       "large text expands past old editor limits at every zoom/alignment")
+                expect((frame.width - text.rect.width) * scale >= 3.99
+                       && (frame.height - text.rect.height) * scale >= 19.99,
+                       "growing editor retains physical caret padding")
+                expect(frame.midY == text.rect.midY, "growth preserves label vertical anchor")
+                switch alignment {
+                case .left: expect(frame.minX == text.rect.minX, "growth preserves left anchor")
+                case .center: expect(frame.midX == text.rect.midX, "growth preserves center anchor")
+                case .right: expect(frame.maxX == text.rect.maxX, "growth preserves right anchor")
+                }
+            }
+        }
+        let overflow = AnnotationElement(tool: .text, rect: CGRect(x: 2900, y: 1900, width: 600, height: 400))
+        let frame = AnnotationTextPlacement.editorFrame(for: overflow, bounds: bounds)
+        expect(frame.contains(overflow.rect) && frame.origin == overflow.rect.origin,
+               "canvas edges do not squeeze text into a scrolling box or move its anchor")
     }
 
     private static func testTextPlacement(_ expect: (Bool, String) -> Void) {
@@ -1178,6 +1208,43 @@ enum AnnotationTests {
     }
 
     private static func testRoughness(_ expect: (Bool, String) -> Void) {
+        let rect = CGRect(x: 40, y: 40, width: 400, height: 260)
+        var sketch = AnnotationElement(tool: .rect, rect: rect,
+            style: AnnotationStyle(color: .red, width: 3, character: .cartoonist))
+        var accentCount = 0
+        for seed: UInt64 in 0..<8 {
+            sketch.roughSeed = seed
+            let outline = AnnotationGeometry.path(sketch)
+            AnnotationPathCache.shared.removeAll()
+            expect(outline == AnnotationGeometry.path(sketch), "sketched shape remains deterministic")
+            expect(outline.contains(CGPoint(x: rect.midX, y: rect.midY)), "sketched contours retain fill and interior hit geometry")
+            expect(rect.insetBy(dx: -16, dy: -16).contains(outline.boundingBoxOfPath), "corner overdraw stays bounded")
+            let contours = AnnotationPathSampling.polylines(outline)
+            expect(contours.filter { $0.count > 3 && $0.first == $0.last }.count == 2, "sketch retains two closed outlines")
+            accentCount += contours.filter { $0.first != $0.last }.count
+            var current = CGPoint.zero
+            var largestBend: CGFloat = 0
+            outline.applyWithBlock { pointer in
+                let item = pointer.pointee
+                switch item.type {
+                case .moveToPoint: current = item.points[0]
+                case .addCurveToPoint:
+                    largestBend = max(largestBend,
+                        ScreenshotSupport.distance(from: item.points[0], toSegment: current, item.points[2]),
+                        ScreenshotSupport.distance(from: item.points[1], toSegment: current, item.points[2]))
+                    current = item.points[2]
+                case .addLineToPoint: current = item.points[0]
+                default: break
+                }
+            }
+            expect(largestBend <= 2.5, "sketched rectangle edges avoid exaggerated lens-shaped bows")
+        }
+        expect(accentCount > 0, "seeded sketch samples include small corner overshoots")
+        var twice = sketch
+        twice.rect = CGRect(x: rect.minX * 2, y: rect.minY * 2, width: rect.width * 2, height: rect.height * 2)
+        var doubledTransform = CGAffineTransform(scaleX: 2, y: 2)
+        expect(AnnotationGeometry.path(sketch).copy(using: &doubledTransform) == AnnotationGeometry.path(twice, scale: 2),
+               "closed-shape roughness preserves Retina scaling")
         var line = AnnotationElement(tool: .line, points: [CGPoint(x: 20, y: 70), CGPoint(x: 170, y: 70)])
         let clean = AnnotationGeometry.path(line)
         var paths: [CGPath] = []

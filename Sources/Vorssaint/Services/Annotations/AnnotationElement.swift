@@ -338,7 +338,8 @@ enum AnnotationGeometry {
         let rough = element.tool == .redact || element.tool == .highlight || element.tool == .pixelate
             || (element.tool == .freehand && element.resolvedStyle.isHighlighter)
             ? path : AnnotationRoughness.path(path, character: element.resolvedStyle.character,
-                                             seed: element.roughSeed, width: element.resolvedStyle.width, scale: renderScale)
+                                             seed: element.roughSeed, width: element.resolvedStyle.width, scale: renderScale,
+                                             closedShape: element.tool == .rect || element.tool == .ellipse)
         var transform = transform(element)
         return rough.copy(using: &transform) ?? rough
     }

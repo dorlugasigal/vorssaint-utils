@@ -37,26 +37,30 @@ enum AnnotationTextPlacement {
         }
     }
 
-    static func editorFrame(for element: AnnotationElement, preferredSize: CGSize, bounds: CGRect) -> CGRect {
-        var size = CGSize(width: min(preferredSize.width, bounds.width),
-                          height: min(preferredSize.height, bounds.height))
+    static func editorFrame(for element: AnnotationElement, preferredSize: CGSize = CGSize(width: 100, height: 80),
+                            bounds: CGRect, viewScale: CGFloat = 1) -> CGRect {
+        let required = CGSize(width: element.rect.width + 4 / viewScale,
+                              height: element.rect.height + 20 / viewScale)
+        var size = CGSize(width: max(required.width, min(preferredSize.width, bounds.width)),
+                          height: max(required.height, min(preferredSize.height, bounds.height)))
         var origin = element.rect.origin
         switch element.resolvedStyle.textAlignment {
         case .left:
-            size.width = min(size.width, max(20, bounds.maxX - origin.x))
+            size.width = max(required.width, min(size.width, max(0, bounds.maxX - origin.x)))
         case .center:
-            size.width = min(size.width, max(20, 2 * min(element.rect.midX - bounds.minX, bounds.maxX - element.rect.midX)))
+            size.width = max(required.width, min(size.width, max(0, 2 * min(element.rect.midX - bounds.minX, bounds.maxX - element.rect.midX))))
             origin.x = element.rect.midX - size.width / 2
         case .right:
-            size.width = min(size.width, max(20, element.rect.maxX - bounds.minX))
+            size.width = max(required.width, min(size.width, max(0, element.rect.maxX - bounds.minX)))
             origin.x = element.rect.maxX - size.width
         }
         if element.centersTextVertically {
-            size.height = min(size.height, max(20, 2 * min(element.rect.midY - bounds.minY, bounds.maxY - element.rect.midY)))
+            size.height = max(required.height, min(size.height, max(0, 2 * min(element.rect.midY - bounds.minY, bounds.maxY - element.rect.midY))))
             origin.y = element.rect.midY - size.height / 2
         } else {
-            size.height = min(size.height, max(20, bounds.maxY - origin.y))
+            size.height = max(required.height, min(size.height, max(0, bounds.maxY - origin.y)))
         }
-        return AnnotationDisplayGeometry.clampedToolbarFrame(CGRect(origin: origin, size: size), visibleFrame: bounds)
+        // Screen bounds limit spare editing room, not the text itself or its anchor.
+        return CGRect(origin: origin, size: size)
     }
 }

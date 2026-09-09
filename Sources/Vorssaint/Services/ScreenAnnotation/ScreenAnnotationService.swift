@@ -1109,8 +1109,7 @@ private final class AnnotationDrawingView: NSView {
     func beginTextEditor(_ element: AnnotationElement) {
         cancelTextEditor()
         let editor = AnnotationNativeTextEditor(element: element, scale: 1)
-        editor.frame = AnnotationTextPlacement.editorFrame(for: element,
-            preferredSize: CGSize(width: 400, height: 200), bounds: bounds)
+        editor.frame = AnnotationTextPlacement.editorFrame(for: element, bounds: bounds)
         editor.committed = { [weak service] in service?.commitText($0) }
         editor.changed = { [weak service] in service?.updateTextDraft($0) }
         editor.cancelled = { [weak service] in service?.cancelGesture() }
@@ -1136,8 +1135,7 @@ private final class AnnotationDrawingView: NSView {
 
     func updateTextEditor(_ element: AnnotationElement) {
         guard let textEditor else { return }
-        textEditor.frame = AnnotationTextPlacement.editorFrame(for: element,
-            preferredSize: CGSize(width: 400, height: 200), bounds: bounds)
+        textEditor.frame = AnnotationTextPlacement.editorFrame(for: element, bounds: bounds)
         textEditor.applyStyle(element, scale: 1)
     }
     func focusTextEditor() { textEditor?.focus() }

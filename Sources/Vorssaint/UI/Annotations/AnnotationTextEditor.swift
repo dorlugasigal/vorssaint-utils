@@ -6,7 +6,7 @@ import SwiftUI
 
 /// Both hosts use the same native text system, including marked text, native
 /// selection and multiline insertion. Inspector focus does not end the edit.
-final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
+final class AnnotationNativeTextEditor: NSView, NSTextViewDelegate {
     private final class TextView: NSTextView {
         var commit: (() -> Void)?
         var cancel: (() -> Void)?
@@ -23,6 +23,8 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
     }
 
     private let editor = TextView()
+    var textView: NSTextView { editor }
+    override var isFlipped: Bool { true }
     private var alignment: AnnotationStyle.Alignment?
     private var centersVertically = false
     var changed: ((String) -> Void)?
@@ -41,10 +43,6 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
 
     init(element: AnnotationElement, scale: CGFloat) {
         super.init(frame: .zero)
-        drawsBackground = false
-        hasVerticalScroller = true
-        hasHorizontalScroller = true
-        autohidesScrollers = true
         editor.isRichText = false
         editor.allowsUndo = true
         editor.drawsBackground = false
@@ -63,7 +61,7 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
             self.commit()
         }
         editor.cancel = { [weak self] in self?.cancelled?() }
-        documentView = editor
+        addSubview(editor)
         applyStyle(element, scale: scale)
     }
 
@@ -111,13 +109,13 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: editor.font ?? NSFont.systemFont(ofSize: 19)]).size
         let usesViewportWidth = alignment != .left
-        let width: CGFloat = max(20, ceil(measured.width), usesViewportWidth ? contentSize.width - 4 : 0)
-        let inset = NSSize(width: 2, height: centersVertically ? max(0, (contentSize.height - ceil(measured.height)) / 2) : 0)
+        let width: CGFloat = max(20, ceil(measured.width), usesViewportWidth ? bounds.width - 4 : 0)
+        let inset = NSSize(width: 2, height: centersVertically ? max(0, (bounds.height - ceil(measured.height)) / 2) : 0)
         if editor.textContainerInset != inset { editor.textContainerInset = inset }
         let container = NSSize(width: width, height: 100_000)
         if editor.textContainer?.containerSize != container { editor.textContainer?.containerSize = container }
         let size = NSSize(width: max(100, width + 4),
-                          height: max(80, ceil(measured.height) + 20, centersVertically ? contentSize.height : 0))
+                          height: max(80, ceil(measured.height) + 20, centersVertically ? bounds.height : 0))
         if editor.frame.size != size { editor.setFrameSize(size) }
     }
 }

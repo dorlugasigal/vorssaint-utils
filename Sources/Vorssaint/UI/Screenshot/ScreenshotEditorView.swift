@@ -575,12 +575,9 @@ struct ScreenshotEditorView: View {
         if let editingID = model.editingTextID,
            let annotation = model.annotations.first(where: { $0.id == editingID }) {
             let pad = model.backdropPaddingPixels
-            let preferred = CGSize(width: max(240, min(600, annotation.rect.width * zoom + 30)) / zoom,
-                                   height: max(100, min(300, annotation.rect.height * zoom + 40)) / zoom)
-            let editorFrame = annotation.resolvedStyle.textAlignment != .left || annotation.centersTextVertically
-                ? AnnotationTextPlacement.editorFrame(for: annotation, preferredSize: preferred,
-                    bounds: CGRect(origin: .zero, size: model.imageSize))
-                : CGRect(origin: annotation.rect.origin, size: preferred)
+            let editorFrame = AnnotationTextPlacement.editorFrame(for: annotation,
+                preferredSize: CGSize(width: 100 / zoom, height: 80 / zoom),
+                bounds: CGRect(origin: .zero, size: model.imageSize), viewScale: zoom)
             AnnotationTextEditor(text: Binding(get: {
                 model.annotations.first(where: { $0.id == editingID })?.text ?? ""
             }, set: { model.updateTextDraft(editingID, text: $0) }), element: annotation, scale: model.scale * zoom,

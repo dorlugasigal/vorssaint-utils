@@ -74,6 +74,9 @@ Selecting transparent removes the fill and hides those styles. Pressure offers
 Constant and Simulated; the legacy Tablet value remains readable and saved
 creation defaults migrate to Constant.
 The stroke-character picker offers Architect (clean) and Cartoonist (rough).
+Rough closed shapes use two subtly uneven contours with slight corner
+misregistration and small seeded overshoots, rather than large opposing bows.
+Open connectors keep their endpoints pinned.
 The retired middle Artist preset remains decodable for existing styles;
 saved creation defaults migrate to Architect. Redact is available in the
 live toolbar's custom-shape menu and remains a separate screenshot tool.
@@ -113,6 +116,9 @@ Switching drawing tools commits the current draft instead of discarding it.
 Horizontal alignment applies to all paragraphs without changing the caret
 selection; shape-label vertical centering is independent of left/center/right
 alignment. Ordinary text keeps its top anchor while being edited.
+The native editing surface grows with the text and font size instead of
+creating an inner scrolling box. Oversized text keeps its anchor; the canvas
+still determines what is visible or included in an exported image.
 Double-click empty canvas to start text at the pointer, or double-click a shape
 to start centered text. Double-clicking a shape with text at its center reopens
 that text. Text is a separate editable element, not a bound child of the shape.

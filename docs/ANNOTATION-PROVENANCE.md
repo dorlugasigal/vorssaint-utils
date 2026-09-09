@@ -17,7 +17,8 @@ controls, short-shaft clamping, and automatic click-versus-drag finishing
 policy (4 screen points, latched until release). Creation's existing 45-degree
 Shift constraint remains distinct from the source's 15-degree rotation snap.
 `AnnotationRoughness` adapts its seeded generator and Artist/Cartoonist profile
-metrics to the shared CGContext path pass. Endpoints remain pinned, and the
+metrics to the shared CGContext path pass. Open connector endpoints remain pinned; the
+closed-shape profile uses native corner jitter and small overdraw accents. The
 default Architect style preserves Vorssaint's original screenshot geometry.
 Rough geometry is intentionally native to the shared path model rather than
 copying ZoomIt's zoom-dependent rendering and controller machinery.

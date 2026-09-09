@@ -19,17 +19,26 @@ enum AnnotationRoughness {
     }
 
     static func path(_ canonical: CGPath, character: AnnotationStyle.Character,
-                     seed: UInt64, width: CGFloat, scale: CGFloat = 1) -> CGPath {
+                     seed: UInt64, width: CGFloat, scale: CGFloat = 1, closedShape: Bool = false) -> CGPath {
         guard character != .architect else { return canonical }
+        let sketch = closedShape && character == .cartoonist
+            && min(canonical.boundingBoxOfPath.width, canonical.boundingBoxOfPath.height) > 8 * scale
         let widthScale = 1 + min(0.35, max(0, (sqrt(max(1, width / scale)) - 1) * 0.18))
-        let amplitude: CGFloat = (character == .artist ? 3 : 6) * widthScale * scale
-        let minimum: CGFloat = character == .artist ? 0.35 : 0.65
+        let amplitude: CGFloat = (sketch ? 1.4 : character == .artist ? 3 : 6) * widthScale * scale
+        let minimum: CGFloat = sketch ? 0 : character == .artist ? 0.35 : 0.65
         let result = CGMutablePath()
         for pass in 0..<2 {
             var generator = Generator(state: seed ^ (UInt64(pass + 1) &* 0xBF58_476D_1CE4_E5B9))
-            let bias: CGFloat = (pass == 0 ? -1 : 1) * (character == .artist ? 0.7 : 4.2) * widthScale * scale
+            let bias: CGFloat = sketch ? 0 : (pass == 0 ? -1 : 1) * (character == .artist ? 0.7 : 4.2) * widthScale * scale
             var current = CGPoint.zero
             var start = CGPoint.zero
+            var overshoots: [(CGPoint, CGPoint)] = []
+            func jittered(_ point: CGPoint) -> CGPoint {
+                guard sketch else { return point }
+                let amount: CGFloat = 2 * widthScale * scale
+                return CGPoint(x: point.x + generator.signedUnit() * amount,
+                               y: point.y + generator.signedUnit() * amount)
+            }
             func perturbed(_ control: CGPoint, from a: CGPoint, to b: CGPoint) -> CGPoint {
                 let length = hypot(b.x - a.x, b.y - a.y)
                 guard length > 0.001 else { return control }
@@ -39,37 +48,49 @@ enum AnnotationRoughness {
                 return CGPoint(x: control.x - (b.y - a.y) / length * offset,
                                y: control.y + (b.x - a.x) / length * offset)
             }
-            func line(to end: CGPoint) {
+            func line(to point: CGPoint, closing: Bool = false) {
+                let end = closing ? point : jittered(point)
                 let c1 = CGPoint(x: current.x + (end.x - current.x) / 3,
                                  y: current.y + (end.y - current.y) / 3)
                 let c2 = CGPoint(x: current.x + (end.x - current.x) * 2 / 3,
                                  y: current.y + (end.y - current.y) * 2 / 3)
                 result.addCurve(to: end, control1: perturbed(c1, from: current, to: end),
                                 control2: perturbed(c2, from: current, to: end))
+                let length = hypot(end.x - current.x, end.y - current.y)
+                if sketch, overshoots.count < 2, length > 24 * scale, generator.signedUnit() > 0.35 {
+                    let extra = min(length * 0.03, 5 * widthScale * scale) * (0.5 + abs(generator.signedUnit()))
+                    overshoots.append((end, CGPoint(x: end.x + (end.x - current.x) / length * extra,
+                                                   y: end.y + (end.y - current.y) / length * extra)))
+                }
                 current = end
             }
             canonical.applyWithBlock { pointer in
                 let element = pointer.pointee
                 switch element.type {
                 case .moveToPoint:
-                    current = element.points[0]
+                    current = jittered(element.points[0])
                     start = current
                     result.move(to: current)
                 case .addLineToPoint: line(to: element.points[0])
                 case .addQuadCurveToPoint:
-                    let end = element.points[1]
+                    let end = jittered(element.points[1])
                     result.addQuadCurve(to: end, control: perturbed(element.points[0], from: current, to: end))
                     current = end
                 case .addCurveToPoint:
-                    let end = element.points[2]
+                    let end = jittered(element.points[2])
                     result.addCurve(to: end, control1: perturbed(element.points[0], from: current, to: end),
                                     control2: perturbed(element.points[1], from: current, to: end))
                     current = end
                 case .closeSubpath:
-                    if current != start { line(to: start) }
+                    if current != start { line(to: start, closing: true) }
                     result.closeSubpath()
                 @unknown default: break
                 }
+            }
+            // Keep the closed contours for fill/hit testing; open accents only add small corner overdraw.
+            for (from, to) in overshoots {
+                result.move(to: from)
+                result.addLine(to: to)
             }
         }
         return result

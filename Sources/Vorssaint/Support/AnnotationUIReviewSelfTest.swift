@@ -55,15 +55,31 @@ enum AnnotationUIReviewSelfTest {
         render("screenshot-bottom-preferences", host: NSHostingController(rootView:
             ScreenshotEditorView(model: screenshot.model, controller: screenshot).frame(width: 1000, height: 700)),
                dark: true, maximumWidth: 1000)
+        render("rough-rectangle-comparison", host: NSHostingController(rootView:
+            Canvas { context, _ in
+                context.withCGContext { cg in
+                    for (index, character) in [AnnotationStyle.Character.architect, .cartoonist].enumerated() {
+                        var rectangle = AnnotationElement(tool: .rect,
+                            rect: CGRect(x: 30 + index * 430, y: 50, width: 380, height: 240),
+                            style: AnnotationStyle(color: .red, width: 3, character: character))
+                        rectangle.roughSeed = 42
+                        AnnotationRenderer.draw(rectangle, in: cg, scale: 1, shadowsEnabled: false)
+                    }
+                }
+                context.draw(Text("Clean").foregroundColor(.white), at: CGPoint(x: 60, y: 22))
+                context.draw(Text("Updated rough stroke").foregroundColor(.white), at: CGPoint(x: 555, y: 22))
+            }.frame(width: 860, height: 320).background(Color(white: 0.08))),
+               dark: true, maximumWidth: 860)
         var style = AnnotationStyle(color: .blue, width: 4)
         style.textAlignment = .center
         let editor = AnnotationNativeTextEditor(element: AnnotationElement(tool: .text, text: "Centered",
                                                                           style: style, centersTextVertically: true), scale: 1)
         editor.frame = CGRect(x: 0, y: 0, width: 300, height: 160)
         editor.layoutSubtreeIfNeeded()
-        guard let textView = editor.documentView as? NSTextView, textView.alignment == .center,
+        let textView = editor.textView
+        guard textView.alignment == .center,
               textView.textContainerInset.height > 0,
-              abs((textView.textContainer?.containerSize.width ?? 0) + 4 - editor.contentSize.width) < 1 else {
+              abs((textView.textContainer?.containerSize.width ?? 0) + 4 - editor.bounds.width) < 1 else {
             fail("centered native text container")
         }
         editor.text = "Longer line\nshort"
@@ -81,6 +97,26 @@ enum AnnotationUIReviewSelfTest {
             guard textView.selectedRange().location == secondLine, textView.textContainerInset.height == 0 else {
                 fail("alignment preserves caret and ordinary top anchoring")
             }
+        }
+        var largeStyle = AnnotationStyle(color: .blue, width: 4, textSize: 120)
+        largeStyle.fontFamily = .serif
+        var largeText = AnnotationElement(tool: .text, rect: CGRect(x: 100, y: 100, width: 0, height: 0),
+                                         text: "Large text\nSecond line\nThird line", style: largeStyle)
+        largeText.rect = AnnotationRenderer.textBounds(largeText, scale: 1)
+        let largeEditor = AnnotationNativeTextEditor(element: largeText, scale: 1)
+        largeEditor.frame = AnnotationTextPlacement.editorFrame(for: largeText,
+            bounds: CGRect(x: 0, y: 0, width: 2000, height: 1500))
+        largeEditor.layoutSubtreeIfNeeded()
+        guard let container = largeEditor.textView.textContainer, let manager = largeEditor.textView.layoutManager else {
+            fail("large text layout")
+        }
+        manager.ensureLayout(for: container)
+        let used = manager.usedRect(for: container)
+        guard largeEditor.textView.enclosingScrollView == nil,
+              largeEditor.frame.width > 400, largeEditor.frame.height > 200,
+              used.maxX + largeEditor.textView.textContainerInset.width <= largeEditor.bounds.width + 1,
+              used.maxY + largeEditor.textView.textContainerInset.height <= largeEditor.bounds.height + 1 else {
+            fail("large text must fit without an inner scrolling editor")
         }
         defaults.removePersistentDomain(forName: suite)
         print("ANNOTATION UI OK: all tools, both appearances, constrained viewport and native text")
