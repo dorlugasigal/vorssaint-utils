@@ -118,7 +118,7 @@ struct AnnotationInspector: View {
                         Text(AnnotationStyleStrings.fill(localization.language)).font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                         AnnotationColorControl(color: fillColorBinding, opacity: $style.opacity, editingChanged: editingChanged,
-                                               title: AnnotationStyleStrings.fill(localization.language))
+                                               isFill: true, title: AnnotationStyleStrings.fill(localization.language))
                             .frame(width: 36, height: 36)
                     }
                 }
@@ -148,7 +148,7 @@ struct AnnotationInspector: View {
                 .frame(width: 28, height: 28)
             if supportsFill {
                 AnnotationColorControl(color: fillColorBinding, opacity: $style.opacity, editingChanged: editingChanged,
-                                       title: AnnotationStyleStrings.fill(localization.language), side: 28)
+                                       isFill: true, title: AnnotationStyleStrings.fill(localization.language), side: 28)
                     .frame(width: 28, height: 28)
             }
             if hasStroke {

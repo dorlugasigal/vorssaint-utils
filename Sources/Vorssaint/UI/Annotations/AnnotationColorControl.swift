@@ -47,6 +47,7 @@ struct AnnotationColorPaletteView: View {
     @ObservedObject var state: AnnotationPaletteState
     var title: String
     var allowsAlpha: Bool
+    var isFill: Bool
     var suggestedColors: [AnnotationColor]
     var select: (AnnotationColor) -> Void
     var opacityChanged: (CGFloat) -> Void
@@ -57,13 +58,14 @@ struct AnnotationColorPaletteView: View {
     @State private var hex: String
     @State private var invalidHex = false
 
-    init(state: AnnotationPaletteState, title: String, allowsAlpha: Bool,
+    init(state: AnnotationPaletteState, title: String, allowsAlpha: Bool, isFill: Bool = false,
          suggestedColors: [AnnotationColor] = AnnotationColorPalette.colors,
          select: @escaping (AnnotationColor) -> Void, opacityChanged: @escaping (CGFloat) -> Void,
          sample: @escaping () -> Void, done: @escaping () -> Void) {
         self.state = state
         self.title = title
         self.allowsAlpha = allowsAlpha
+        self.isFill = isFill
         self.suggestedColors = suggestedColors
         self.select = select
         self.opacityChanged = opacityChanged
@@ -149,7 +151,8 @@ struct AnnotationColorPaletteView: View {
 
     private func commitHex() -> Bool {
         if hex == AnnotationColorPalette.hex(state.color) { return true }
-        guard let color = AnnotationColorPalette.parse(hex, alpha: state.color.alpha, allowsAlpha: allowsAlpha) else {
+        let alpha = AnnotationColorPalette.inputAlpha(for: state.color, isFill: isFill)
+        guard let color = AnnotationColorPalette.parse(hex, alpha: alpha, allowsAlpha: allowsAlpha) else {
             invalidHex = true
             NSSound.beep()
             return false
@@ -165,6 +168,7 @@ struct AnnotationColorControl: NSViewRepresentable {
     @Binding var opacity: CGFloat
     var editingChanged: (Bool) -> Void
     var allowsAlpha = true
+    var isFill = false
     var title = ""
     var suggestedColors: [AnnotationColor] = AnnotationColorPalette.colors
     var side: CGFloat = 36
@@ -255,7 +259,8 @@ struct AnnotationColorControl: NSViewRepresentable {
             popover.delegate = self
             let title = control.title.isEmpty ? FeatureStrings.screenshot(L10n.shared.language).colorLabel : control.title
             popover.contentViewController = NSHostingController(rootView: AnnotationColorPaletteView(
-                state: state, title: title, allowsAlpha: control.allowsAlpha, suggestedColors: control.suggestedColors,
+                state: state, title: title, allowsAlpha: control.allowsAlpha, isFill: control.isFill,
+                suggestedColors: control.suggestedColors,
                 select: { [weak self] in self?.select($0) },
                 opacityChanged: { [weak self] in self?.setOpacity($0) },
                 sample: { [weak self] in self?.sample() },
@@ -309,7 +314,9 @@ struct AnnotationColorControl: NSViewRepresentable {
                     if self.owner?.isVisible == true, let color {
                         if let rgb = color.usingColorSpace(.sRGB) {
                             self.select(AnnotationColor(red: rgb.redComponent, green: rgb.greenComponent,
-                                                        blue: rgb.blueComponent, alpha: self.control.color.alpha))
+                                                        blue: rgb.blueComponent,
+                                                        alpha: AnnotationColorPalette.inputAlpha(for: self.control.color,
+                                                                                                 isFill: self.control.isFill)))
                         } else { NSSound.beep() }
                     }
                     self.close()

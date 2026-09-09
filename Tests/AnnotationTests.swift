@@ -7,6 +7,7 @@ enum AnnotationTests {
     static func run(_ expect: (Bool, String) -> Void) {
         testControlPreviews(expect)
         testColorPalette(expect)
+        testAbsentFillInputs(expect)
         testSimplifiedPreferences(expect)
         testPathSampling(expect)
         testStraightLineTool(expect)
@@ -130,6 +131,39 @@ enum AnnotationTests {
                 !AnnotationPickerStrings.text($0, language).isEmpty
             }, "all inspector section labels localized")
         }
+    }
+
+    private static func testAbsentFillInputs(_ expect: (Bool, String) -> Void) {
+        let transparent = AnnotationColor(red: 1, green: 1, blue: 1, alpha: 0)
+        let alpha = AnnotationColorPalette.inputAlpha(for: transparent, isFill: true)
+        guard let rgb = AnnotationColorPalette.parse("FF0000", alpha: alpha),
+              let rgba = AnnotationColorPalette.parse("FF000000", alpha: alpha) else {
+            expect(false, "fill input fixtures parse"); return
+        }
+        let sampled = AnnotationColor(red: 0, green: 0, blue: 1,
+            alpha: AnnotationColorPalette.inputAlpha(for: transparent, isFill: true))
+        for input in [rgb, sampled] {
+            let original = AnnotationElement(tool: .rect, rect: CGRect(x: 20, y: 20, width: 100, height: 80),
+                                             style: AnnotationStyle(color: .black, width: 4))
+            var document = AnnotationDocument()
+            document.elements = [original]
+            document.begin()
+            document.elements[0].style?.setFillColor(input)
+            expect(document.elements[0].resolvedStyle.fill == .solid && document.elements[0].resolvedStyle.hasVisibleFill,
+                   "RGB and sampled input enable an absent fill")
+            document.elements[0].style?.setFillColor(.green)
+            document.commit()
+            document.undo()
+            expect(document.elements == [original] && !document.history.canUndo, "fill picker session remains one undo step")
+        }
+        var style = AnnotationStyle(color: .black, width: 4, fill: .solid)
+        style.setFillColor(rgba)
+        expect(style.fill == .none, "explicit zero RGBA alpha still removes fill")
+        expect(AnnotationColorPalette.inputAlpha(for: transparent, isFill: false) == 0,
+               "transparent stroke alpha policy is unchanged")
+        let partial = AnnotationColor(red: 1, green: 0, blue: 0, alpha: 0.4)
+        expect(AnnotationColorPalette.inputAlpha(for: partial, isFill: true) == 0.4,
+               "existing partial fill alpha is preserved")
     }
 
     private static func testSimplifiedPreferences(_ expect: (Bool, String) -> Void) {

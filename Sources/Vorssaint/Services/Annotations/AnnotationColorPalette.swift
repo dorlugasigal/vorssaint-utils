@@ -4,6 +4,10 @@
 import Foundation
 
 enum AnnotationColorPalette {
+    static func inputAlpha(for color: AnnotationColor, isFill: Bool) -> Double {
+        isFill && color.alpha == 0 ? 1 : color.alpha
+    }
+
     static let colors: [AnnotationColor] = [
         AnnotationColor(red: 0, green: 0, blue: 0, alpha: 0),
         rgb(0x17191C), rgb(0x495057), rgb(0xFFFFFF), rgb(0x846358),
