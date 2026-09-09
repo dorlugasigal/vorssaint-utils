@@ -44,16 +44,26 @@ struct AnnotationElement: Identifiable, Equatable {
 }
 
 struct AnnotationStyle: Equatable {
+    enum Fill: Int, CaseIterable { case none, solid, hatch, crossHatch }
+    enum Pattern: Int, CaseIterable { case solid, dashed, dotted }
+    enum Shape: Int, CaseIterable { case standard, diamond }
     var color: AnnotationColor
     var width: CGFloat
     var opacity: CGFloat = 1
     var smooth = true
     var textSize: CGFloat?
     var mediumTextWeight = false
+    var fill: Fill = .none
+    var fillColor: AnnotationColor = .white
+    var pattern: Pattern = .solid
+    var shape: Shape = .standard
+    var roundness: CGFloat = 0
 
     func sanitized() -> AnnotationStyle {
         var result = self
         result.color = color.clamped()
+        result.fillColor = fillColor.clamped()
+        result.roundness = roundness.isFinite ? min(max(roundness, 0), 1) : 0
         result.width = width.isFinite ? min(max(width, 1), 40) : 6
         result.opacity = opacity.isFinite ? min(max(opacity, 0), 1) : 1
         if let textSize { result.textSize = textSize.isFinite ? min(max(textSize, 6), 240) : 19 }
@@ -83,7 +93,19 @@ enum AnnotationGeometry {
     static func path(_ element: AnnotationElement) -> CGPath {
         let path = CGMutablePath()
         switch element.tool {
-        case .rect, .redact, .highlight, .pixelate:
+        case .rect:
+            if element.resolvedStyle.shape == .diamond {
+                let rect = element.rect
+                path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+                path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+                path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+                path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
+                path.closeSubpath()
+            } else {
+                let radius = element.resolvedStyle.roundness * min(element.rect.width, element.rect.height) / 2
+                path.addRoundedRect(in: element.rect, cornerWidth: radius, cornerHeight: radius)
+            }
+        case .redact, .highlight, .pixelate:
             path.addRect(element.rect)
         case .ellipse:
             path.addEllipse(in: element.rect)

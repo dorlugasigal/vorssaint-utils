@@ -7,6 +7,7 @@ enum AnnotationTests {
     static func run(_ expect: (Bool, String) -> Void) {
         testEditing(expect)
         testSelection(expect)
+        testShapeStyles(expect)
         let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
         for anchor in [CGRect(x: -1900, y: 1100, width: 50, height: 50),
                        CGRect(x: -100, y: 2050, width: 50, height: 50)] {
@@ -155,6 +156,37 @@ enum AnnotationTests {
         for language in AppLanguage.allCases {
             expect(AnnotationCommandStrings.labels(language).count == AnnotationSelectionAction.allCases.count,
                    "selection actions localized for \(language)")
+        }
+    }
+
+    private static func testShapeStyles(_ expect: (Bool, String) -> Void) {
+        var style = AnnotationStyle(color: .red, width: 4)
+        style.shape = .diamond
+        var diamond = AnnotationElement(tool: .rect, rect: CGRect(x: 20, y: 20, width: 120, height: 100), style: style)
+        let size = CGSize(width: 200, height: 200)
+        expect(AnnotationGeometry.hit(diamond, at: CGPoint(x: 80, y: 70), scale: 1, imageSize: size),
+               "diamond interior is selectable")
+        expect(!AnnotationGeometry.hit(diamond, at: CGPoint(x: 20, y: 20), scale: 1, imageSize: size),
+               "diamond does not select rectangular corner outside geometry")
+        var rendered: [Data] = []
+        for fill in AnnotationStyle.Fill.allCases {
+            style.fill = fill
+            style.fillColor = .green
+            diamond.style = style
+            if let pixels = bitmap({ AnnotationRenderer.draw(diamond, in: $0, scale: 1, shadowsEnabled: false) }) {
+                rendered.append(pixels)
+                expect(pixels == bitmap({ AnnotationRenderer.draw(diamond, in: $0, scale: 1, shadowsEnabled: false) }),
+                       "shape fills are deterministic")
+            }
+        }
+        expect(Set(rendered).count == 4, "none solid hatch and crosshatch produce distinct fills")
+        style.shape = .standard
+        style.roundness = 1
+        diamond.style = style
+        expect(!AnnotationGeometry.path(diamond).contains(CGPoint(x: 21, y: 21)),
+               "rounded rectangle uses rounded geometry for rendering and selection")
+        for language in AppLanguage.allCases {
+            expect(AnnotationStyleStrings.labels(language).count == 11, "shape styles localized for \(language)")
         }
     }
 

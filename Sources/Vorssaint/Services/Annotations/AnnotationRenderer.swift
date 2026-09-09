@@ -33,7 +33,16 @@ enum AnnotationRenderer {
         context.setLineWidth(scaledStyle.width)
         context.setLineCap(.round)
         context.setLineJoin(.round)
-        context.addPath(AnnotationGeometry.path(scaled))
+        switch style.pattern {
+        case .solid: break
+        case .dashed: context.setLineDash(phase: 0, lengths: [6 * scaledStyle.width, 3 * scaledStyle.width])
+        case .dotted: context.setLineDash(phase: 0, lengths: [0, 2.5 * scaledStyle.width])
+        }
+        let path = AnnotationGeometry.path(scaled)
+        if annotation.tool == .rect || annotation.tool == .ellipse {
+            drawFill(style, path: path, in: context, scale: scale)
+        }
+        context.addPath(path)
         switch annotation.tool {
         case .arrow, .redact:
             context.fillPath()
@@ -44,6 +53,36 @@ enum AnnotationRenderer {
         default:
             context.strokePath()
         }
+    }
+
+    private static func drawFill(_ style: AnnotationStyle, path: CGPath, in context: CGContext, scale: CGFloat) {
+        guard style.fill != .none else { return }
+        context.saveGState()
+        defer { context.restoreGState() }
+        var fillStyle = style
+        fillStyle.color = style.fillColor
+        context.setFillColor(color(fillStyle).cgColor)
+        if style.fill == .solid {
+            context.addPath(path)
+            context.fillPath()
+            return
+        }
+        context.addPath(path)
+        context.clip()
+        context.setStrokeColor(color(fillStyle).cgColor)
+        context.setLineWidth(max(1, scale))
+        context.setLineDash(phase: 0, lengths: [])
+        let bounds = path.boundingBoxOfPath
+        let step = max(6 * scale, style.width * 2 * scale)
+        for x in stride(from: bounds.minX - bounds.height, through: bounds.maxX, by: step) {
+            context.move(to: CGPoint(x: x, y: bounds.minY))
+            context.addLine(to: CGPoint(x: x + bounds.height, y: bounds.maxY))
+            if style.fill == .crossHatch {
+                context.move(to: CGPoint(x: x, y: bounds.maxY))
+                context.addLine(to: CGPoint(x: x + bounds.height, y: bounds.minY))
+            }
+        }
+        context.strokePath()
     }
 
     static func font(_ annotation: AnnotationElement, scale: CGFloat) -> NSFont {

@@ -7,12 +7,14 @@ import SwiftUI
 struct AnnotationInspector: View {
     @Binding var style: AnnotationStyle
     var editingChanged: (Bool) -> Void
+    var tool: ScreenshotSupport.Tool
     @ObservedObject private var localization = L10n.shared
 
     private var strings: ScreenshotFeatureStrings { FeatureStrings.screenshot(localization.language) }
 
     var body: some View {
-        HStack(spacing: 12) {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
             AnnotationColorControl(color: Binding(get: { style.color }, set: { style.color = $0 }),
                                    editingChanged: editingChanged)
                 .frame(width: 32, height: 24)
@@ -25,6 +27,40 @@ struct AnnotationInspector: View {
             Slider(value: $style.opacity, in: 0...1, onEditingChanged: editingChanged)
                 .frame(width: 85)
                 .accessibilityLabel(AnnotationSessionStrings.opacity(localization.language))
+            }
+            if tool == .rect || tool == .ellipse || tool == .line || tool == .freehand {
+                HStack(spacing: 10) {
+                    Picker(AnnotationStyleStrings.pattern(localization.language), selection: $style.pattern) {
+                        ForEach(AnnotationStyle.Pattern.allCases, id: \.rawValue) { pattern in
+                            Text(AnnotationStyleStrings.patternName(pattern, localization.language)).tag(pattern)
+                        }
+                    }
+                    .frame(width: 145)
+                    if tool == .rect || tool == .ellipse {
+                        Picker(AnnotationStyleStrings.fill(localization.language), selection: $style.fill) {
+                            ForEach(AnnotationStyle.Fill.allCases, id: \.rawValue) { fill in
+                                Text(AnnotationStyleStrings.fillName(fill, localization.language)).tag(fill)
+                            }
+                        }
+                        .frame(width: 160)
+                        AnnotationColorControl(color: $style.fillColor, editingChanged: editingChanged)
+                            .frame(width: 32, height: 24)
+                            .help(AnnotationStyleStrings.fill(localization.language))
+                    }
+                }
+            }
+            if tool == .rect {
+                HStack {
+                    Picker(strings.toolRect, selection: $style.shape) {
+                        Text(strings.toolRect).tag(AnnotationStyle.Shape.standard)
+                        Text(AnnotationStyleStrings.diamond(localization.language)).tag(AnnotationStyle.Shape.diamond)
+                    }
+                    .frame(width: 160)
+                    Slider(value: $style.roundness, in: 0...1, onEditingChanged: editingChanged)
+                        .frame(width: 100)
+                        .accessibilityLabel(AnnotationStyleStrings.roundness(localization.language))
+                }
+            }
         }
     }
 }

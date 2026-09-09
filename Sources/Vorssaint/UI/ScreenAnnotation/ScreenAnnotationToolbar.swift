@@ -56,9 +56,11 @@ private struct AnnotationToolbarView: View {
                     .help(strings.clear)
             }
             AnnotationInspector(style: Binding(get: { service.inspectorStyle }, set: service.setInspectorStyle),
-                                editingChanged: service.styleEditingChanged)
+                                editingChanged: service.styleEditingChanged, tool: service.inspectorTool)
             HStack {
                 AnnotationSelectionMenu(hasSelection: !service.selectedIDs.isEmpty, perform: service.performSelectionAction)
+                Button { service.cycleBackground() } label: { Image(systemName: "square.fill") }
+                    .help(FeatureStrings.screenshot(localization.language).backdropLabel)
                 Button { service.toggleDrawing() } label: {
                     Label(AnnotationSessionStrings.mode(service.isDrawingActive, localization.language),
                           systemImage: service.isDrawingActive ? "pencil.tip" : "cursorarrow")

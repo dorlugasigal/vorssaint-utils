@@ -46,7 +46,7 @@ struct ScreenshotEditorView: View {
                 if model.tool != .crop && model.tool != .pixelate
                     && model.tool != .sticker && model.tool != .counter {
                     AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
-                                        editingChanged: model.styleEditingChanged)
+                                        editingChanged: model.styleEditingChanged, tool: model.inspectorTool)
                         .padding(.horizontal, 12)
                 }
                 HStack(spacing: 0) {

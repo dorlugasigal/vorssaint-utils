@@ -46,7 +46,14 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     private(set) var marquee: CGRect?
     private var marqueeSelection: Set<UUID> = []
     var selectedIDs: Set<UUID> { document.selectedIDs }
-    private var customStyle: AnnotationStyle?
+    private var toolStyles: [AnnotationTool: AnnotationStyle] = [:]
+    enum Background: Int { case transparent, white, black }
+    @Published private(set) var background = Background.transparent
+
+    func cycleBackground() {
+        background = Background(rawValue: (background.rawValue + 1) % 3) ?? .transparent
+        drawingView?.needsDisplay = true
+    }
     @Published private(set) var shortcutRegistrationFailed = false
 
     // Preferences (kept in sync with UserDefaults)
@@ -118,6 +125,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         canUndo = document.history.canUndo
         canRedo = document.history.canRedo
         drawingView?.needsDisplay = true
+        DispatchQueue.main.async { [weak self] in self?.fitToolbar() }
     }
 
     fileprivate func cancelGesture() {
@@ -148,6 +156,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         toolbarPanel = nil
         drawingView = nil
         document = AnnotationDocument()
+        background = .transparent
         refreshDocument()
         selectedID = nil
         draftID = nil
@@ -284,6 +293,19 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         toolbar.orderFrontRegardless()
     }
 
+    private func fitToolbar() {
+        guard let toolbar = toolbarPanel, let screen = sessionScreen,
+              let view = toolbar.contentViewController?.view else { return }
+        view.layoutSubtreeIfNeeded()
+        let fitted = view.fittingSize
+        let visible = screen.visibleFrame
+        let size = CGSize(width: min(fitted.width, visible.width), height: min(fitted.height, visible.height))
+        let origin = CGPoint(x: min(max(toolbar.frame.minX, visible.minX), visible.maxX - size.width),
+                             y: min(max(toolbar.frame.minY, visible.minY), visible.maxY - size.height))
+        let frame = CGRect(origin: origin, size: size)
+        if toolbar.frame != frame { toolbar.setFrame(frame, display: true) }
+    }
+
     // MARK: - Key monitors (pattern from ScreenshotSelectionController)
 
     private func installKeyMonitors() {
@@ -337,6 +359,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         cancelGesture()
         tool = t
         UserDefaults.standard.set(t.rawValue, forKey: DefaultsKey.screenAnnotationTool)
+        DispatchQueue.main.async { [weak self] in self?.fitToolbar() }
     }
 
     func setColor(_ c: AnnotationColor) {
@@ -354,6 +377,9 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     var inspectorStyle: AnnotationStyle {
         strokes.first(where: { $0.id == selectedID })?.resolvedStyle ?? creationStyle
     }
+    var inspectorTool: ScreenshotSupport.Tool {
+        strokes.first(where: { $0.id == selectedID })?.tool ?? tool.elementTool ?? .select
+    }
 
     func styleEditingChanged(_ editing: Bool) {
         if editing { document.begin() } else { document.commit(); refreshDocument() }
@@ -369,7 +395,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                 if strokes[index].tool == .text { strokes[index].rect = AnnotationRenderer.textBounds(strokes[index], scale: 1) }
             }
         } else {
-            customStyle = style
+            toolStyles[tool] = style
             color = style.color
             width = style.width
             UserDefaults.standard.set("\(color.red),\(color.green),\(color.blue),\(color.alpha)",
@@ -460,7 +486,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     private var creationStyle: AnnotationStyle {
-        customStyle ?? AnnotationStyle(color: color, width: width, opacity: tool == .highlighter ? 0.35 : 1,
+        toolStyles[tool] ?? AnnotationStyle(color: color, width: width, opacity: tool == .highlighter ? 0.35 : 1,
                         smooth: false, textSize: max(14, width * 3), mediumTextWeight: true)
     }
 
@@ -649,6 +675,10 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
         guard let svc = service,
               let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState()
+        if svc.background != .transparent {
+            ctx.setFillColor((svc.background == .white ? NSColor.white : NSColor.black).cgColor)
+            ctx.fill(bounds)
+        }
         for stroke in svc.strokes {
             AnnotationRenderer.draw(stroke, in: ctx, scale: 1, shadowsEnabled: false)
             if svc.selectedIDs.contains(stroke.id) {

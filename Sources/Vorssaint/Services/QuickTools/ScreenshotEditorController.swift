@@ -143,6 +143,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             ?? annotationStyleDefaults
             ?? AnnotationElement(tool: tool, color: color, stroke: stroke).resolvedStyle
     }
+    var inspectorTool: ScreenshotSupport.Tool {
+        annotations.first(where: { $0.id == selectedID })?.tool ?? tool
+    }
 
     func styleEditingChanged(_ editing: Bool) {
         if editing { history.begin(snapshot) } else {
