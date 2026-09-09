@@ -61,6 +61,7 @@ struct AnnotationDocument {
     struct Snapshot: Equatable {
         var elements: [AnnotationElement] = []
         var selection: Set<UUID> = []
+        static func == (lhs: Snapshot, rhs: Snapshot) -> Bool { lhs.elements == rhs.elements }
     }
 
     var state = Snapshot()
@@ -109,6 +110,8 @@ struct AnnotationEditGesture {
 
     static func handle(for element: AnnotationElement, at point: CGPoint,
                        tolerance: CGFloat) -> Handle? {
+        guard !element.isLocked else { return nil }
+        let point = point.applying(AnnotationGeometry.transform(element).inverted())
         if element.tool == .arrow || element.tool == .line {
             if let index = element.points.indices.first(where: {
                 hypot(element.points[$0].x - point.x, element.points[$0].y - point.y) <= tolerance
@@ -122,6 +125,7 @@ struct AnnotationEditGesture {
     }
 
     func updated(to point: CGPoint) -> AnnotationElement {
+        guard !original.isLocked else { return original }
         var result = original
         switch handle {
         case .move:
@@ -129,9 +133,16 @@ struct AnnotationEditGesture {
             result.rect = original.rect.offsetBy(dx: delta.x, dy: delta.y)
             result.points = original.points.map { CGPoint(x: $0.x + delta.x, y: $0.y + delta.y) }
         case .point(let index):
-            if result.points.indices.contains(index) { result.points[index] = point }
+            if result.points.indices.contains(index) {
+                result.points[index] = point.applying(AnnotationGeometry.transform(original).inverted())
+            }
         case .resize(let handle):
-            result.rect = ScreenshotSupport.resizedRect(original.rect, dragging: handle, to: point)
+            result.rect = ScreenshotSupport.resizedRect(original.rect, dragging: handle,
+                to: point.applying(AnnotationGeometry.transform(original).inverted()))
+            let center = CGPoint(x: result.rect.midX, y: result.rect.midY)
+                .applying(AnnotationGeometry.transform(original))
+            result.rect.origin = CGPoint(x: center.x - result.rect.width / 2,
+                                         y: center.y - result.rect.height / 2)
         }
         return result
     }

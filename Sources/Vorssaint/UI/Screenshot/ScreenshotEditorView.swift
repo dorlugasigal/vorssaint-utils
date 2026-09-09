@@ -82,6 +82,7 @@ struct ScreenshotEditorView: View {
         ZStack {
             BrandMark(width: 40, tint: Color(white: 0.92))
             HStack {
+                AnnotationSelectionMenu(hasSelection: !model.selectedIDs.isEmpty, perform: model.performSelectionAction)
                 Spacer()
                 actionCluster
             }
@@ -199,6 +200,9 @@ struct ScreenshotEditorView: View {
             }
         }
         .gesture(canvasGesture(zoom: zoom))
+        .contextMenu {
+            AnnotationSelectionCommands(hasSelection: !model.selectedIDs.isEmpty, perform: model.performSelectionAction)
+        }
         .onContinuousHover { phase in
             switch phase {
             case .active(let location):
@@ -342,7 +346,7 @@ struct ScreenshotEditorView: View {
                     dragInFlight = true
                     dragStartView = value.location
                     commitEditingTextIfNeeded()
-                    model.beginDrag(at: point)
+                    model.beginDrag(at: point, extendingSelection: NSEvent.modifierFlags.contains(.shift))
                 } else {
                     model.continueDrag(to: point)
                 }
@@ -455,14 +459,25 @@ struct ScreenshotEditorView: View {
     // MARK: - Selection and crop chrome
 
     private func drawSelectionChrome(_ cg: CGContext) {
-        guard let selectedID = model.selectedID,
-              let selected = model.annotations.first(where: { $0.id == selectedID })
-        else { return }
+        for selected in model.annotations where model.selectedIDs.contains(selected.id) {
+            cg.saveGState()
+            drawSelectedElement(selected, in: cg)
+            cg.restoreGState()
+        }
+        if let marquee = model.selectionMarquee {
+            cg.setStrokeColor(NSColor.systemBlue.cgColor)
+            cg.setLineWidth(model.scale)
+            cg.stroke(marquee)
+        }
+    }
+
+    private func drawSelectedElement(_ selected: AnnotationElement, in cg: CGContext) {
+        cg.concatenate(AnnotationGeometry.transform(selected))
         let scale = model.scale
         cg.setStrokeColor(CGColor(srgbRed: 0.04, green: 0.52, blue: 1, alpha: 0.9))
         cg.setLineWidth(1.5 * scale)
         cg.setLineDash(phase: 0, lengths: [4 * scale, 3 * scale])
-        if selected.points.count >= 2, selected.tool != .freehand {
+        if selected.points.count >= 2, selected.tool != .freehand, !selected.isLocked {
             for point in selected.points.prefix(2) {
                 cg.setFillColor(CGColor(gray: 1, alpha: 1))
                 let handle = CGRect(x: point.x - 4 * scale, y: point.y - 4 * scale,
@@ -474,10 +489,10 @@ struct ScreenshotEditorView: View {
         }
         let box = selected.tool == .counter
             ? counterBox(selected)
-            : selected.rect.insetBy(dx: -3 * scale, dy: -3 * scale)
+            : AnnotationGeometry.bounds(selected).insetBy(dx: -3 * scale, dy: -3 * scale)
         cg.stroke(box)
         cg.setLineDash(phase: 0, lengths: [])
-        if selected.tool.resizesWithHandles {
+        if selected.tool.resizesWithHandles && !selected.isLocked {
             for handle in ScreenshotSupport.Handle.allCases {
                 let position = handle.position(in: selected.rect)
                 let dot = CGRect(x: position.x - 3.5 * scale, y: position.y - 3.5 * scale,

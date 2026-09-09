@@ -66,11 +66,17 @@ enum ScreenshotRenderer {
                             && annotation.tool != .redact && annotation.tool != .highlight)
                 }
             case .sticker:
+                context.saveGState()
+                context.concatenate(AnnotationGeometry.transform(annotation))
                 drawSticker(annotation, in: context, scale: scale,
                             shadowsEnabled: annotationShadowsEnabled)
+                context.restoreGState()
             case .counter:
+                context.saveGState()
+                context.concatenate(AnnotationGeometry.transform(annotation))
                 drawCounter(annotation, in: context, imageSize: imageSize, scale: scale,
                             shadowsEnabled: annotationShadowsEnabled)
+                context.restoreGState()
             case .select, .crop:
                 break
             }

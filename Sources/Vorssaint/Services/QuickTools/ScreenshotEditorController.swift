@@ -12,7 +12,11 @@ import Vision
 final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     @Published private(set) var baseImage: CGImage
     @Published var annotations: [ScreenshotSupport.Annotation] = []
-    @Published var selectedID: UUID?
+    @Published var selectedIDs: Set<UUID> = []
+    var selectedID: UUID? {
+        get { annotations.first(where: { selectedIDs.contains($0.id) })?.id }
+        set { selectedIDs = AnnotationSelection.expandingGroups(Set(newValue.map { [$0] } ?? []), in: annotations) }
+    }
     @Published var editingTextID: UUID?
     @Published var tool: ScreenshotSupport.Tool {
         didSet {
@@ -105,12 +109,13 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private struct Snapshot: Equatable {
         let image: CGImage
         let annotations: [ScreenshotSupport.Annotation]
+        let selection: Set<UUID>
         static func == (lhs: Snapshot, rhs: Snapshot) -> Bool {
             lhs.image === rhs.image && lhs.annotations == rhs.annotations
         }
     }
     private var history = AnnotationHistory<Snapshot>()
-    private var snapshot: Snapshot { Snapshot(image: baseImage, annotations: annotations) }
+    private var snapshot: Snapshot { Snapshot(image: baseImage, annotations: annotations, selection: selectedIDs) }
     private var cleanImage: CGImage?
     private var cleanAnnotations: [ScreenshotSupport.Annotation] = []
     private var cleanBackdropStyle = ScreenshotSupport.BackdropStyle()
@@ -120,6 +125,10 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var dragStart: CGPoint = .zero
     private var draftID: UUID?
     private var annotationGesture: AnnotationEditGesture?
+    private var groupGestures: [AnnotationEditGesture] = []
+    @Published private(set) var selectionMarquee: CGRect?
+    private var additiveSelection = false
+    private var marqueeSelection: Set<UUID> = []
     private var activeHandle: ScreenshotSupport.Handle?
     private var cropResizeOrigin: CGRect?
     private var cropMoveOrigin: CGRect?
@@ -145,12 +154,18 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
 
     func setInspectorStyle(_ value: AnnotationStyle) {
         let style = value.sanitized()
-        if let selectedID, let index = annotations.firstIndex(where: { $0.id == selectedID }) {
-            guard annotations[index].resolvedStyle != style else { return }
+        if selectedID != nil {
+            let indexes = annotations.indices.filter {
+                selectedIDs.contains(annotations[$0].id) && !annotations[$0].isLocked
+                    && annotations[$0].resolvedStyle != style
+            }
+            guard !indexes.isEmpty else { return }
             registerUndo()
-            annotations[index].style = style
-            if annotations[index].tool == .text {
-                annotations[index].rect = AnnotationRenderer.textBounds(annotations[index], scale: scale)
+            for index in indexes {
+                annotations[index].style = style
+                if annotations[index].tool == .text {
+                    annotations[index].rect = AnnotationRenderer.textBounds(annotations[index], scale: scale)
+                }
             }
         } else {
             annotationStyleDefaults = style
@@ -430,7 +445,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         } else {
             pixelated = nil
         }
-        selectedID = nil
+        selectedIDs = state.selection.intersection(Set(annotations.map(\.id)))
         editingTextID = nil
         newTextID = nil
         cropDraft = nil
@@ -468,7 +483,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// Applies color or thickness changes to the selected annotation.
     private func applyStyleToSelection() {
         guard let selectedID,
-              let index = annotations.firstIndex(where: { $0.id == selectedID })
+              let index = annotations.firstIndex(where: { $0.id == selectedID && !$0.isLocked })
         else { return }
         guard annotations[index].color != color || annotations[index].stroke != stroke else { return }
         registerUndo()
@@ -492,7 +507,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private func applyStickerToSelection() {
         guard let selectedID,
               let index = annotations.firstIndex(where: { $0.id == selectedID }),
-              annotations[index].tool == .sticker,
+              annotations[index].tool == .sticker, !annotations[index].isLocked,
               annotations[index].text != sticker.rawValue
         else { return }
         registerUndo()
@@ -501,11 +516,17 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
 
     // MARK: - Gestures (image-pixel coordinates)
 
-    func beginDrag(at point: CGPoint) {
+    func beginDrag(at point: CGPoint, extendingSelection: Bool = false) {
         history.begin(snapshot)
         dragStart = point
         dragRegistered = false
         editingSelectedAnnotation = false
+        additiveSelection = extendingSelection
+        if tool == .select, extendingSelection, let hit = hitTest(point) {
+            let ids = AnnotationSelection.expandingGroups([hit], in: annotations)
+            selectedIDs = ids.isSubset(of: selectedIDs) ? selectedIDs.subtracting(ids) : selectedIDs.union(ids)
+            return
+        }
         if tool != .select, tool != .crop, selectedAnnotationOwns(point) {
             editingSelectedAnnotation = true
             beginSelectDrag(at: point)
@@ -562,12 +583,14 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         if let selectedID,
            let selected = annotations.first(where: { $0.id == selectedID }) {
             let tolerance = 12 * scale
-            if let handle = AnnotationEditGesture.handle(for: selected, at: point, tolerance: tolerance) {
+            if selectedIDs.count == 1,
+               let handle = AnnotationEditGesture.handle(for: selected, at: point, tolerance: tolerance) {
                 annotationGesture = AnnotationEditGesture(original: selected, anchor: point, handle: handle)
                 return
             }
         }
-        selectedID = hitTest(point)
+        if let hit = hitTest(point), !selectedIDs.contains(hit) { selectedID = hit }
+        else if hitTest(point) == nil { selectedID = nil }
         if let selectedID, let hit = annotations.first(where: { $0.id == selectedID }) {
             if hit.tool == .sticker {
                 self.selectedID = nil
@@ -575,11 +598,16 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
                 self.selectedID = selectedID
             }
             annotationGesture = AnnotationEditGesture(original: hit, anchor: point, handle: .move)
+            groupGestures = annotations.filter { selectedIDs.contains($0.id) }
+                .map { AnnotationEditGesture(original: $0, anchor: point, handle: .move) }
             clearTextSelection()
         } else if let word = wordIndex(at: point) {
             // A drag over recognized text selects intersecting words.
             textSelectionAnchor = point
             selectedWordIndexes = [word]
+        } else {
+            marqueeSelection = additiveSelection ? selectedIDs : []
+            selectionMarquee = CGRect(origin: point, size: .zero)
         }
     }
 
@@ -620,6 +648,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     private func continueSelectDrag(to point: CGPoint) {
+        if selectionMarquee != nil {
+            let rect = ScreenshotSupport.selectionRect(from: dragStart, to: point)
+            selectionMarquee = rect
+            selectedIDs = marqueeSelection.union(AnnotationSelection.marquee(rect, elements: annotations))
+            return
+        }
         if let anchor = textSelectionAnchor {
             selectedWordIndexes = ScreenshotSupport.wordSelection(
                 anchor: anchor, current: point, boxes: textWords.map(\.rect))
@@ -632,7 +666,13 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             registerUndo()
             dragRegistered = true
         }
-        if let annotationGesture { annotations[index] = annotationGesture.updated(to: point) }
+        if !groupGestures.isEmpty {
+            for gesture in groupGestures {
+                if let index = annotations.firstIndex(where: { $0.id == gesture.original.id }) {
+                    annotations[index] = gesture.updated(to: point)
+                }
+            }
+        } else if let annotationGesture { annotations[index] = annotationGesture.updated(to: point) }
     }
 
     /// `isTap` is decided by the view in screen points, so a click stays a
@@ -644,6 +684,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             refreshUndoFlags()
             refreshDirtyState()
             annotationGesture = nil
+            groupGestures.removeAll()
+            selectionMarquee = nil
+            additiveSelection = false
             draftID = nil
             activeHandle = nil
             cropResizeOrigin = nil
@@ -739,6 +782,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
 
     private func finishSelectDrag(at point: CGPoint, isTap: Bool) {
         textSelectionAnchor = nil
+        if additiveSelection { return }
         guard isTap, !dragRegistered else { return }
         selectedID = hitTest(point)
         if let selectedID,
@@ -796,14 +840,18 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     // MARK: - Edits
 
     func deleteSelected() {
-        guard let selectedID else { return }
-        guard annotations.contains(where: { $0.id == selectedID }) else { return }
-        registerUndo()
-        annotations.removeAll { $0.id == selectedID }
-        annotations = ScreenshotSupport.renumberingCounters(annotations)
-        self.selectedID = nil
+        performSelectionAction(.delete)
         editingTextID = nil
-        if newTextID == selectedID { newTextID = nil }
+        if !annotations.contains(where: { $0.id == newTextID }) { newTextID = nil }
+    }
+
+    func performSelectionAction(_ action: AnnotationSelectionAction) {
+        var state = AnnotationDocument.Snapshot(elements: annotations, selection: selectedIDs)
+        AnnotationSelection.apply(action, to: &state)
+        if annotations != state.elements { registerUndo() }
+        annotations = state.elements
+        selectedIDs = state.selection
+        refreshDirtyState()
     }
 
     /// Moves the selected annotation one step through the drawing order, so a
@@ -811,15 +859,11 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// by their place in the array, so moving one past another renumbers both,
     /// the same way deleting one already does.
     func moveSelected(_ move: ScreenshotSupport.LayerMove) {
-        guard let selectedID else { return }
-        let reordered = ScreenshotSupport.reordering(annotations, moving: selectedID, move)
-        guard reordered.map(\.id) != annotations.map(\.id) else { return }
-        registerUndo()
-        annotations = ScreenshotSupport.renumberingCounters(reordered)
+        performSelectionAction(move == .forward ? .forward : .backward)
     }
 
     func commitText(_ id: UUID, text: String) {
-        guard let index = annotations.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = annotations.firstIndex(where: { $0.id == id && !$0.isLocked }) else { return }
         editingTextID = nil
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let isNew = newTextID == id

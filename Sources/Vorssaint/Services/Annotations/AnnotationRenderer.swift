@@ -80,6 +80,7 @@ enum AnnotationRenderer {
         }
         context.saveGState()
         let previous = NSGraphicsContext.current
+        context.concatenate(AnnotationGeometry.transform(annotation))
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
         annotation.text.draw(at: CGPoint(x: annotation.rect.minX + 2, y: annotation.rect.minY),
                              withAttributes: attributes)

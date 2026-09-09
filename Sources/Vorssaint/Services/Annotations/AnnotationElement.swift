@@ -16,6 +16,9 @@ struct AnnotationElement: Identifiable, Equatable {
     var stroke: ScreenshotSupport.StrokeID
     var number: Int
     var style: AnnotationStyle?
+    var rotation: CGFloat = 0
+    var groupID: UUID?
+    var isLocked = false
 
     init(id: UUID = UUID(), tool: ScreenshotSupport.Tool, rect: CGRect = .zero,
          points: [CGPoint] = [], text: String = "", color: ScreenshotSupport.ColorID = .red,
@@ -59,6 +62,17 @@ struct AnnotationStyle: Equatable {
 }
 
 enum AnnotationGeometry {
+    static func transform(_ element: AnnotationElement) -> CGAffineTransform {
+        let rect = bounds(element)
+        return CGAffineTransform(translationX: rect.midX, y: rect.midY)
+            .rotated(by: element.rotation)
+            .translatedBy(x: -rect.midX, y: -rect.midY)
+    }
+
+    static func visualBounds(_ element: AnnotationElement) -> CGRect {
+        bounds(element).applying(transform(element))
+    }
+
     static func bounds(_ element: AnnotationElement) -> CGRect {
         guard let first = element.points.first else { return element.rect }
         return element.points.dropFirst().reduce(CGRect(origin: first, size: .zero)) {
@@ -96,7 +110,8 @@ enum AnnotationGeometry {
             if let last = element.points.last { path.addLine(to: last) }
         case .text, .sticker, .counter, .select, .crop: break
         }
-        return path
+        var transform = transform(element)
+        return path.copy(using: &transform) ?? path
     }
 
     static func hit(_ element: AnnotationElement, at point: CGPoint, scale: CGFloat,
@@ -121,7 +136,8 @@ enum AnnotationGeometry {
             return geometry.copy(strokingWithWidth: tolerance, lineCap: .round,
                                  lineJoin: .round, miterLimit: 10).contains(point)
         case .text, .sticker:
-            return element.rect.insetBy(dx: -tolerance / 2, dy: -tolerance / 2).contains(point)
+            return element.rect.insetBy(dx: -tolerance / 2, dy: -tolerance / 2)
+                .contains(point.applying(transform(element).inverted()))
         case .select, .crop: return false
         }
     }

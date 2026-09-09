@@ -31,7 +31,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         _modify { yield &document.state.elements }
     }
     private(set) var selectedID: UUID? {
-        get { document.selectedIDs.first }
+        get { strokes.first(where: { document.selectedIDs.contains($0.id) })?.id }
         set {
             objectWillChange.send()
             document.selectedIDs = Set(newValue.map { [$0] } ?? [])
@@ -42,6 +42,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     private var draftID: UUID?
     private var dragStart = CGPoint.zero
     private var editGesture: AnnotationEditGesture?
+    private var groupGestures: [AnnotationEditGesture] = []
+    private(set) var marquee: CGRect?
+    private var marqueeSelection: Set<UUID> = []
+    var selectedIDs: Set<UUID> { document.selectedIDs }
     private var customStyle: AnnotationStyle?
     @Published private(set) var shortcutRegistrationFailed = false
 
@@ -101,11 +105,12 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     func deleteSelected() {
+        performSelectionAction(.delete)
+    }
+
+    func performSelectionAction(_ action: AnnotationSelectionAction) {
         cancelGesture()
-        document.edit { state in
-            state.elements.removeAll { state.selection.contains($0.id) }
-            state.selection.removeAll()
-        }
+        document.edit { AnnotationSelection.apply(action, to: &$0) }
         refreshDocument()
     }
 
@@ -119,6 +124,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         document.cancel()
         draftID = nil
         editGesture = nil
+        groupGestures.removeAll()
+        marquee = nil
         refreshDocument()
     }
 
@@ -356,9 +363,11 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         let style = value.sanitized()
         let continuous = document.history.isEditing
         if !continuous { document.begin() }
-        if let selectedID, let index = strokes.firstIndex(where: { $0.id == selectedID }) {
-            strokes[index].style = style
-            if strokes[index].tool == .text { strokes[index].rect = AnnotationRenderer.textBounds(strokes[index], scale: 1) }
+        if selectedID != nil {
+            for index in strokes.indices where selectedIDs.contains(strokes[index].id) && !strokes[index].isLocked {
+                strokes[index].style = style
+                if strokes[index].tool == .text { strokes[index].rect = AnnotationRenderer.textBounds(strokes[index], scale: 1) }
+            }
         } else {
             customStyle = style
             color = style.color
@@ -391,16 +400,28 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     // MARK: - Stroke entry points (called from AnnotationDrawingView)
 
-    fileprivate func beginStroke(at p: NSPoint, bounds: CGRect) {
+    fileprivate func beginStroke(at p: NSPoint, bounds: CGRect, extendingSelection: Bool = false) {
         cancelGesture()
         dragStart = p
+        if tool == .select, extendingSelection, let hit = hitTest(p, bounds: bounds) {
+            let ids = AnnotationSelection.expandingGroups([hit], in: strokes)
+            document.selectedIDs = ids.isSubset(of: selectedIDs)
+                ? selectedIDs.subtracting(ids) : selectedIDs.union(ids)
+            refreshDocument()
+            return
+        }
         let selected = strokes.first { $0.id == selectedID }
         if let selected {
             let handle = AnnotationEditGesture.handle(for: selected, at: p, tolerance: 12)
             if tool != .eraser,
                handle != nil || AnnotationGeometry.hit(selected, at: p, scale: 1, imageSize: bounds.size) {
                 document.begin()
-                editGesture = AnnotationEditGesture(original: selected, anchor: p, handle: handle ?? .move)
+                if selectedIDs.count > 1 {
+                    groupGestures = strokes.filter { selectedIDs.contains($0.id) }
+                        .map { AnnotationEditGesture(original: $0, anchor: p, handle: .move) }
+                } else {
+                    editGesture = AnnotationEditGesture(original: selected, anchor: p, handle: handle ?? .move)
+                }
                 return
             }
         }
@@ -410,12 +431,22 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         }
         if tool == .select || tool == .eraser {
             let id = hitTest(p, bounds: bounds)
-            selectedID = tool == .select ? id : nil
+            if tool == .select {
+                if let id {
+                    document.selectedIDs = AnnotationSelection.expandingGroups([id], in: strokes)
+                } else {
+                    marqueeSelection = extendingSelection ? selectedIDs : []
+                    document.selectedIDs = marqueeSelection
+                    marquee = CGRect(origin: p, size: .zero)
+                }
+            } else { selectedID = nil }
             document.begin()
             if tool == .select, let element = strokes.first(where: { $0.id == id }) {
-                editGesture = AnnotationEditGesture(original: element, anchor: p, handle: .move)
+                groupGestures = strokes.filter { selectedIDs.contains($0.id) }
+                    .map { AnnotationEditGesture(original: $0, anchor: p, handle: .move) }
+                if groupGestures.isEmpty { editGesture = AnnotationEditGesture(original: element, anchor: p, handle: .move) }
             }
-            if tool == .eraser { strokes.removeAll { $0.id == id } }
+            if tool == .eraser { strokes.removeAll { $0.id == id && !$0.isLocked } }
             drawingView?.needsDisplay = true
             return
         }
@@ -447,13 +478,33 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         strokes.last { AnnotationGeometry.hit($0, at: point, scale: 1, imageSize: bounds.size) }?.id
     }
 
+    fileprivate func selectContextTarget(at point: CGPoint, bounds: CGRect) {
+        if let id = hitTest(point, bounds: bounds), !selectedIDs.contains(id) {
+            document.selectedIDs = AnnotationSelection.expandingGroups([id], in: strokes)
+            refreshDocument()
+        }
+    }
+
     fileprivate func continueStroke(at p: NSPoint, bounds: CGRect) {
+        if marquee != nil {
+            marquee = ScreenshotSupport.selectionRect(from: dragStart, to: p)
+            document.selectedIDs = marqueeSelection.union(AnnotationSelection.marquee(marquee!, elements: strokes))
+            return
+        }
+        if !groupGestures.isEmpty {
+            for gesture in groupGestures {
+                if let index = strokes.firstIndex(where: { $0.id == gesture.original.id }) {
+                    strokes[index] = gesture.updated(to: p)
+                }
+            }
+            return
+        }
         if let editGesture, let index = strokes.firstIndex(where: { $0.id == editGesture.original.id }) {
             strokes[index] = editGesture.updated(to: p)
             return
         }
         if tool == .eraser {
-            if let id = hitTest(p, bounds: bounds) { strokes.removeAll { $0.id == id } }
+            if let id = hitTest(p, bounds: bounds) { strokes.removeAll { $0.id == id && !$0.isLocked } }
             return
         }
         guard let draftID, let i = strokes.firstIndex(where: { $0.id == draftID }) else { return }
@@ -477,6 +528,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         document.commit()
         draftID = nil
         editGesture = nil
+        groupGestures.removeAll()
+        marquee = nil
         refreshDocument()
     }
 
@@ -598,14 +651,19 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
         ctx.saveGState()
         for stroke in svc.strokes {
             AnnotationRenderer.draw(stroke, in: ctx, scale: 1, shadowsEnabled: false)
-            if svc.selectedID == stroke.id {
+            if svc.selectedIDs.contains(stroke.id) {
                 ctx.saveGState()
                 ctx.setStrokeColor(NSColor.systemBlue.cgColor)
                 ctx.setLineWidth(2)
                 ctx.setLineDash(phase: 0, lengths: [5, 3])
-                ctx.stroke(AnnotationGeometry.bounds(stroke).insetBy(dx: -6, dy: -6))
+                ctx.stroke(AnnotationGeometry.visualBounds(stroke).insetBy(dx: -6, dy: -6))
                 ctx.restoreGState()
             }
+        }
+        if let marquee = svc.marquee {
+            ctx.setStrokeColor(NSColor.systemBlue.cgColor)
+            ctx.setLineWidth(1)
+            ctx.stroke(marquee)
         }
         ctx.restoreGState()
     }
@@ -613,17 +671,37 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
 
     // MARK: Mouse events — pattern from ScreenshotOverlayView
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let service, service.isDrawingActive else { return nil }
+        service.selectContextTarget(at: convert(event.locationInWindow, from: nil), bounds: bounds)
+        let menu = NSMenu()
+        for action in AnnotationSelectionAction.allCases {
+            let item = NSMenuItem(title: AnnotationCommandStrings.title(action, L10n.shared.language),
+                                  action: #selector(selectionAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = action.rawValue
+            item.isEnabled = action == .selectAll || !service.selectedIDs.isEmpty
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func selectionAction(_ item: NSMenuItem) {
+        guard let action = AnnotationSelectionAction(rawValue: item.tag) else { return }
+        service?.performSelectionAction(action)
+    }
+
     override func mouseDown(with event: NSEvent) {
         guard let svc = service, svc.isDrawingActive else { return }
         if svc.tool == .text {
             isDragging = true
             let point = convert(event.locationInWindow, from: nil)
-            svc.beginStroke(at: point, bounds: bounds)
+            svc.beginStroke(at: point, bounds: bounds, extendingSelection: event.modifierFlags.contains(.shift))
             return
         }
         isDragging = true
         let point = convert(event.locationInWindow, from: nil)
-        svc.beginStroke(at: point, bounds: bounds)
+        svc.beginStroke(at: point, bounds: bounds, extendingSelection: event.modifierFlags.contains(.shift))
         needsDisplay = true
     }
 

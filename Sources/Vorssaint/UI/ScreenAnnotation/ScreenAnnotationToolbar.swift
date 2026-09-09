@@ -58,6 +58,7 @@ private struct AnnotationToolbarView: View {
             AnnotationInspector(style: Binding(get: { service.inspectorStyle }, set: service.setInspectorStyle),
                                 editingChanged: service.styleEditingChanged)
             HStack {
+                AnnotationSelectionMenu(hasSelection: !service.selectedIDs.isEmpty, perform: service.performSelectionAction)
                 Button { service.toggleDrawing() } label: {
                     Label(AnnotationSessionStrings.mode(service.isDrawingActive, localization.language),
                           systemImage: service.isDrawingActive ? "pencil.tip" : "cursorarrow")

@@ -6,6 +6,7 @@ import AppKit
 enum AnnotationTests {
     static func run(_ expect: (Bool, String) -> Void) {
         testEditing(expect)
+        testSelection(expect)
         let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
         for anchor in [CGRect(x: -1900, y: 1100, width: 50, height: 50),
                        CGRect(x: -100, y: 2050, width: 50, height: 50)] {
@@ -120,6 +121,41 @@ enum AnnotationTests {
         let freehand = AnnotationElement(tool: .freehand, points: arrow.points)
         expect(AnnotationEditGesture.handle(for: freehand, at: freehand.points[1], tolerance: 12) == nil,
                "freehand sample is not mistaken for a linear endpoint handle")
+    }
+
+    private static func testSelection(_ expect: (Bool, String) -> Void) {
+        let first = AnnotationElement(tool: .rect, rect: CGRect(x: 20, y: 20, width: 40, height: 30))
+        let second = AnnotationElement(tool: .ellipse, rect: CGRect(x: 80, y: 20, width: 40, height: 30))
+        var state = AnnotationDocument.Snapshot(elements: [first, second], selection: [first.id, second.id])
+        AnnotationSelection.apply(.group, to: &state)
+        expect(state.elements[0].groupID != nil && state.elements[0].groupID == state.elements[1].groupID,
+               "group operation assigns one stable group")
+        expect(AnnotationSelection.expandingGroups([first.id], in: state.elements).count == 2,
+               "selecting one group member selects the entire group")
+        AnnotationSelection.apply(.duplicate, to: &state)
+        expect(state.elements.count == 4 && state.selection.count == 2 && !state.selection.contains(first.id),
+               "duplicate creates new identities and selects copies")
+        expect(state.elements[2].groupID == state.elements[3].groupID
+            && state.elements[0].groupID != state.elements[2].groupID, "duplicate isolates copied group identity")
+        AnnotationSelection.apply(.lock, to: &state)
+        let locked = state.elements
+        for action: AnnotationSelectionAction in [.delete, .rotateLeft, .grow, .front, .duplicate] {
+            AnnotationSelection.apply(action, to: &state)
+            expect(state.elements == locked, "locked elements resist \(action)")
+        }
+        state.selection = Set(locked.suffix(2).map(\.id))
+        AnnotationSelection.apply(.unlock, to: &state)
+        AnnotationSelection.apply(.back, to: &state)
+        expect(state.selection.contains(state.elements[0].id), "back layer action preserves relative selection order")
+        AnnotationSelection.apply(.ungroup, to: &state)
+        expect(state.elements[0].groupID == nil && state.elements[1].groupID == nil, "ungroup clears copied group")
+        let rect = CGRect(x: 0, y: 0, width: 200, height: 200)
+        expect(AnnotationSelection.marquee(rect, elements: [first, second]).count == 2,
+               "marquee selects fully enclosed elements")
+        for language in AppLanguage.allCases {
+            expect(AnnotationCommandStrings.labels(language).count == AnnotationSelectionAction.allCases.count,
+                   "selection actions localized for \(language)")
+        }
     }
 
     private static func bitmap(_ draw: (CGContext) -> Void) -> Data? {
