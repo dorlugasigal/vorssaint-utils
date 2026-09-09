@@ -149,11 +149,20 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var editingSelectedAnnotation = false
     private var newTextID: UUID?
     private var annotationStyleDefaults: AnnotationStyle?
+    private var freehandStyleDefaults: AnnotationStyle?
+
+    var creationStyle: AnnotationStyle {
+        if tool == .freehand, let freehandStyleDefaults { return freehandStyleDefaults }
+        return annotationStyleDefaults ?? AnnotationElement(tool: tool, color: color, stroke: stroke).resolvedStyle
+    }
+
+    var shapeGhost: AnnotationElement? {
+        annotations.first { AnnotationInteractionFeedback.isShapeGhost($0, draftID: draftID) }
+    }
 
     var inspectorStyle: AnnotationStyle {
         annotations.first(where: { $0.id == selectedID })?.resolvedStyle
-            ?? annotationStyleDefaults
-            ?? AnnotationElement(tool: tool, color: color, stroke: stroke).resolvedStyle
+            ?? creationStyle
     }
     var inspectorTool: ScreenshotSupport.Tool {
         annotations.first(where: { $0.id == selectedID })?.tool ?? tool
@@ -193,7 +202,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             }
             AnnotationBindings.finishEdit(selectedIDs, elements: &annotations, tolerance: 14 * scale)
         } else {
-            annotationStyleDefaults = style
+            if tool == .freehand { freehandStyleDefaults = style }
+            else { annotationStyleDefaults = style }
             objectWillChange.send()
         }
     }
@@ -603,7 +613,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             registerUndo()
             dragRegistered = true
             var annotation = ScreenshotSupport.Annotation(
-                tool: tool, color: color, stroke: stroke, style: annotationStyleDefaults)
+                tool: tool, color: color, stroke: stroke, style: freehandStyleDefaults ?? annotationStyleDefaults)
             strokeSampler = AnnotationInputSampler()
             annotation.appendFreehand(strokeSampler.sample(point, timestamp: NSApp?.currentEvent?.timestamp ?? 0,
                 hardwarePressure: nil, mode: annotation.resolvedStyle.pressure))
@@ -693,7 +703,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             let samples = strokeSampler.sample(point, timestamp: event?.timestamp ?? ProcessInfo.processInfo.systemUptime,
                 hardwarePressure: hardware, mode: mode, final: final)
             updateDraft { $0.appendFreehand(samples) }
-            if smartDrawEnabled, let element = annotations.first(where: { $0.id == draftID }) {
+            if smartDrawEnabled, let element = annotations.first(where: { $0.id == draftID }),
+               !element.resolvedStyle.isHighlighter {
                 let now = ProcessInfo.processInfo.systemUptime
                 smartDraw.preview(element, timestamp: now, duration: now - strokeStartTime, scale: 1 / scale)
             }
@@ -886,7 +897,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     private func recognizeCompletedStroke() {
-        guard smartDrawEnabled, let completed = annotations.first(where: { $0.id == draftID && $0.tool == .freehand }) else { return }
+        guard smartDrawEnabled, let completed = annotations.first(where: { $0.id == draftID && $0.tool == .freehand }),
+              !completed.resolvedStyle.isHighlighter else { return }
         smartDraw.finish(completed, duration: ProcessInfo.processInfo.systemUptime - strokeStartTime, scale: 1 / scale) { [weak self] converted in
             guard let self, let index = self.annotations.firstIndex(where: {
                 $0.id == completed.id && $0.geometryRevision == completed.geometryRevision
@@ -1055,7 +1067,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         let downscale = UserDefaults.standard.bool(forKey: DefaultsKey.screenshotDownscale)
         return ScreenshotRenderer.renderExport(
             baseImage: baseImage,
-            annotations: annotations,
+            annotations: AnnotationInteractionFeedback.committed(annotations, draftID: draftID),
             pixelated: pixelated,
             scale: scale,
             annotationShadowsEnabled: annotationShadowsEnabled,

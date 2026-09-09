@@ -39,7 +39,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
-    private var draftID: UUID?
+    fileprivate var draftID: UUID?
     private var dragStart = CGPoint.zero
     private var editGesture: AnnotationEditGesture?
     private var groupGestures: [AnnotationEditGesture] = []
@@ -47,7 +47,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     private var marqueeSelection: Set<UUID> = []
     private var linearConstruction: AnnotationLinearConstruction?
     private var strokeSampler = AnnotationInputSampler()
-    private var eraserLast = CGPoint.zero
+    private var eraserSweep = AnnotationEraserSweep()
+    fileprivate var pendingEraseIDs: Set<UUID> { eraserSweep.pendingIDs }
     private let smartDraw = AnnotationSmartDraw()
     private var strokeStartTime: TimeInterval = 0
     @Published var smartDrawEnabled = false {
@@ -143,6 +144,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         canUndo = document.history.canUndo
         canRedo = document.history.canRedo
         drawingView?.needsDisplay = true
+        drawingView?.refreshCursor()
         if let element = strokes.first(where: { $0.id == editingTextID }) {
             drawingView?.updateTextEditor(element)
         }
@@ -151,6 +153,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     fileprivate func cancelGesture() {
         smartDraw.cancel()
+        eraserSweep.cancel()
         document.cancel()
         editingTextID = nil
         drawingView?.cancelTextEditor()
@@ -206,6 +209,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         // 2) makeKey — routes NSEvent.addLocalMonitor to this window
         canvasPanel?.makeKey()
         installKeyMonitors()
+        drawingView?.refreshCursor()
     }
 
     private func exitDrawingMode() {
@@ -403,6 +407,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         cancelGesture()
         if t != .select { selectedID = nil }
         tool = t
+        drawingView?.refreshCursor()
         UserDefaults.standard.set(t.rawValue, forKey: DefaultsKey.screenAnnotationTool)
         DispatchQueue.main.async { [weak self] in self?.fitToolbar() }
     }
@@ -459,7 +464,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             }
         } else {
             toolStyles[tool] = style
-            color = style.color
+            if tool != .highlighter { color = style.color }
             width = style.width
             UserDefaults.standard.set("\(color.red),\(color.green),\(color.blue),\(color.alpha)",
                                       forKey: DefaultsKey.screenAnnotationColor)
@@ -501,7 +506,13 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         cancelGesture()
         dragStart = p
         strokeStartTime = ProcessInfo.processInfo.systemUptime
-        eraserLast = p
+        if tool == .eraser {
+            document.begin()
+            eraserSweep.begin(at: p, elements: strokes,
+                              radius: AnnotationEraserSweep.radius(width: creationStyle.width))
+            drawingView?.needsDisplay = true
+            return
+        }
         if tool == .text {
             beginTextEditing(at: p, bounds: bounds)
             return
@@ -516,8 +527,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         let selected = strokes.first { $0.id == selectedID }
         if let selected {
             let handle = AnnotationEditGesture.handle(for: selected, at: p, tolerance: 12)
-            if tool != .eraser,
-               handle != nil || AnnotationGeometry.hit(selected, at: p, scale: 1, imageSize: bounds.size) {
+            if handle != nil || AnnotationGeometry.hit(selected, at: p, scale: 1, imageSize: bounds.size) {
                 document.begin()
                 if selectedIDs.count > 1 {
                     groupGestures = strokes.filter { selectedIDs.contains($0.id) }
@@ -528,24 +538,21 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                 return
             }
         }
-        if tool == .select || tool == .eraser {
+        if tool == .select {
             let id = hitTest(p, bounds: bounds)
-            if tool == .select {
-                if let id {
-                    document.selectedIDs = AnnotationSelection.expandingGroups([id], in: strokes)
-                } else {
-                    marqueeSelection = extendingSelection ? selectedIDs : []
-                    document.selectedIDs = marqueeSelection
-                    marquee = CGRect(origin: p, size: .zero)
-                }
-            } else { selectedID = nil }
+            if let id {
+                document.selectedIDs = AnnotationSelection.expandingGroups([id], in: strokes)
+            } else {
+                marqueeSelection = extendingSelection ? selectedIDs : []
+                document.selectedIDs = marqueeSelection
+                marquee = CGRect(origin: p, size: .zero)
+            }
             document.begin()
-            if tool == .select, let element = strokes.first(where: { $0.id == id }) {
+            if let element = strokes.first(where: { $0.id == id }) {
                 groupGestures = strokes.filter { selectedIDs.contains($0.id) }
                     .map { AnnotationEditGesture(original: $0, anchor: p, handle: .move) }
                 if groupGestures.isEmpty { editGesture = AnnotationEditGesture(original: element, anchor: p, handle: .move) }
             }
-            if tool == .eraser { strokes.removeAll { $0.id == id && !$0.isLocked } }
             drawingView?.needsDisplay = true
             return
         }
@@ -567,9 +574,11 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         }
     }
 
-    private var creationStyle: AnnotationStyle {
-        toolStyles[tool] ?? AnnotationStyle(color: color, width: width, opacity: tool == .highlighter ? 0.35 : 1,
-                        smooth: false, textSize: max(14, width * 3), mediumTextWeight: true)
+    fileprivate var creationStyle: AnnotationStyle {
+        toolStyles[tool] ?? AnnotationStyle(color: tool == .highlighter ? AnnotationBrush.neonColors[0] : color,
+                        width: width, opacity: tool == .highlighter ? 0.35 : 1,
+                        smooth: false, textSize: max(14, width * 3), mediumTextWeight: true,
+                        isHighlighter: tool == .highlighter)
     }
 
     fileprivate func beginTextEditing(at point: CGPoint, bounds: CGRect) {
@@ -611,6 +620,11 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     fileprivate func continueStroke(at p: NSPoint, bounds: CGRect, final: Bool = false) {
+        if tool == .eraser {
+            eraserSweep.update(to: p, elements: strokes,
+                               radius: AnnotationEraserSweep.radius(width: creationStyle.width))
+            return
+        }
         defer { AnnotationBindings.resolve(&strokes) }
         let p = NSEvent.modifierFlags.contains(.shift) && (tool == .arrow || tool == .line)
             && editGesture == nil && groupGestures.isEmpty ? AnnotationLinear.constrained(p, from: dragStart) : p
@@ -636,12 +650,6 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             strokes[index] = editGesture.updated(to: p)
             return
         }
-        if tool == .eraser {
-            let previous = eraserLast
-            strokes.removeAll { !$0.isLocked && AnnotationPathSampling.sweptHit($0, from: previous, to: p, tolerance: 8) }
-            eraserLast = p
-            return
-        }
         guard let draftID, let i = strokes.firstIndex(where: { $0.id == draftID }) else { return }
         if strokes[i].tool == .freehand {
             let event = NSApp?.currentEvent
@@ -649,7 +657,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             let samples = strokeSampler.sample(p, timestamp: event?.timestamp ?? ProcessInfo.processInfo.systemUptime,
                 hardwarePressure: hardware, mode: strokes[i].resolvedStyle.pressure, final: final)
             strokes[i].appendFreehand(samples)
-            if smartDrawEnabled {
+            if smartDrawEnabled && !strokes[i].resolvedStyle.isHighlighter {
                 let now = ProcessInfo.processInfo.systemUptime
                 smartDraw.preview(strokes[i], timestamp: now, duration: now - strokeStartTime, scale: 1)
             }
@@ -668,6 +676,12 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             return
         }
         continueStroke(at: point, bounds: bounds, final: true)
+        if tool == .eraser {
+            eraserSweep.commit(to: &document.state)
+            document.commit()
+            refreshDocument()
+            return
+        }
         if let draftID, hypot(point.x - dragStart.x, point.y - dragStart.y) < 1,
            tool != .pen && tool != .highlighter {
             strokes.removeAll { $0.id == draftID }
@@ -682,7 +696,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         groupGestures.removeAll()
         marquee = nil
         refreshDocument()
-        if smartDrawEnabled, let completedStroke {
+        if smartDrawEnabled, let completedStroke, !completedStroke.resolvedStyle.isHighlighter {
             smartDraw.finish(completedStroke, duration: ProcessInfo.processInfo.systemUptime - strokeStartTime, scale: 1) { [weak self] converted in
                 guard let self, let index = self.strokes.firstIndex(where: {
                     $0.id == completedStroke.id && $0.geometryRevision == completedStroke.geometryRevision
@@ -775,7 +789,7 @@ private final class AnnotationDrawingView: NSView {
         // Pattern from ScreenshotOverlayView: exact same options
         let tracking = NSTrackingArea(
             rect: .zero,
-            options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect],
+            options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .inVisibleRect],
             owner: self)
         addTrackingArea(tracking)
     }
@@ -792,6 +806,7 @@ private final class AnnotationDrawingView: NSView {
         editor.cancelled = { [weak service] in service?.cancelGesture() }
         addSubview(editor)
         textEditor = editor
+        NSCursor.iBeam.set()
         editor.focus()
     }
 
@@ -800,6 +815,7 @@ private final class AnnotationDrawingView: NSView {
         textEditor = nil
         editor?.removeFromSuperview()
         if editor != nil { window?.makeFirstResponder(self) }
+        refreshCursor()
     }
 
     func dismissTextEditor() -> Bool {
@@ -818,7 +834,41 @@ private final class AnnotationDrawingView: NSView {
         isDragging = false
         service?.cancelGesture()
         cancelTextEditor()
+        NSCursor.arrow.set()
     }
+
+    private func canvasCursor(at point: CGPoint) -> NSCursor {
+        guard let service, service.isDrawingActive else { return .arrow }
+        if textEditor != nil || service.tool == .text { return .iBeam }
+        if service.tool == .eraser {
+            return AnnotationBrushCursor.cursor(style: service.creationStyle, erasing: true)
+        }
+        if let selected = service.strokes.first(where: { $0.id == service.selectedID }),
+           AnnotationGeometry.hit(selected, at: point, scale: 1, imageSize: bounds.size) {
+            return selected.isLocked ? .arrow : .openHand
+        }
+        return service.tool.isFreehand ? AnnotationBrushCursor.cursor(style: service.creationStyle)
+            : service.tool == .select ? .arrow : .crosshair
+    }
+
+    func refreshCursor() {
+        guard let window else { return }
+        window.invalidateCursorRects(for: self)
+        // A floating toolbar or color panel can cover the canvas without the
+        // pointer ever leaving its bounds. Never claim another window's cursor.
+        guard NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == window.windowNumber
+        else { return }
+        canvasCursor(at: convert(window.mouseLocationOutsideOfEventStream, from: nil)).set()
+    }
+
+    override func resetCursorRects() {
+        let point = convert(window?.mouseLocationOutsideOfEventStream ?? .zero, from: nil)
+        addCursorRect(visibleRect, cursor: canvasCursor(at: point))
+    }
+
+    override func cursorUpdate(with event: NSEvent) { refreshCursor() }
+    override func mouseEntered(with event: NSEvent) { refreshCursor() }
+    override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
 
     override var acceptsFirstResponder: Bool { true }
     /// Flipped so origin is top-left, matching screen pixels.
@@ -837,8 +887,15 @@ private final class AnnotationDrawingView: NSView {
         }
         for stroke in svc.strokes {
             if stroke.id == svc.editingTextID { continue }
+            ctx.saveGState()
+            if svc.pendingEraseIDs.contains(stroke.id) {
+                ctx.setAlpha(AnnotationInteractionFeedback.pendingOpacity)
+            } else if AnnotationInteractionFeedback.isShapeGhost(stroke, draftID: svc.draftID) {
+                ctx.setAlpha(AnnotationInteractionFeedback.ghostOpacity)
+            }
             AnnotationRenderer.draw(stroke, in: ctx, scale: 1, shadowsEnabled: false)
-            if svc.selectedIDs.contains(stroke.id) {
+            ctx.restoreGState()
+            if svc.selectedIDs.contains(stroke.id) && !svc.pendingEraseIDs.contains(stroke.id) {
                 ctx.saveGState()
                 ctx.setStrokeColor(NSColor.systemBlue.cgColor)
                 ctx.setLineWidth(2)
@@ -915,7 +972,8 @@ private final class AnnotationDrawingView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        guard let service, service.hasLinearConstruction else { return }
+        refreshCursor()
+        guard let service, service.isDrawingActive, service.hasLinearConstruction else { return }
         service.continueStroke(at: convert(event.locationInWindow, from: nil), bounds: bounds)
         needsDisplay = true
     }
@@ -925,6 +983,7 @@ private final class AnnotationDrawingView: NSView {
             service?.finishStroke(at: convert(event.locationInWindow, from: nil), bounds: bounds)
         }
         isDragging = false
+        refreshCursor()
         needsDisplay = true
     }
 }

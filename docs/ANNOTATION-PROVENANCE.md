@@ -21,6 +21,10 @@ confidence/stability policy and bounded recognition budget from ZoomIt.
 Only its candidate model is adapted to shared Vorssaint elements. Work is
 cancellable and generation-checked; unsupported strokes remain freehand.
 
+`AnnotationBrush` adapts ZoomIt's rectangular highlighter stamp proportions
+and neon sRGB palette. Freehand highlighters use flat caps and bevel joins;
+the screenshot editor's original rectangular Highlight remains separate.
+
 The destination contribution is GPL-3.0-or-later. The following permission
 notice applies to the attributed ZoomIt-derived portions:
 

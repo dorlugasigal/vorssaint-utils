@@ -16,6 +16,7 @@ enum AnnotationTests {
         testBindings(expect)
         testText(expect)
         testFreehand(expect)
+        testInteractionFeedback(expect)
         testRoughness(expect)
         testSmartDraw(expect)
         let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
@@ -87,6 +88,139 @@ enum AnnotationTests {
                 point: AnnotationPoint(x: 50 * scale, y: 70 * scale), in: (200 * scale, 200 * scale))
             expect(normalized == AnnotationPoint(x: 0.25, y: 0.35), "coordinate adapter is scale independent")
         }
+    }
+
+    private static func testInteractionFeedback(_ expect: (Bool, String) -> Void) {
+        var style = AnnotationStyle(color: AnnotationBrush.neonColors[0], width: 20, opacity: 0.35,
+                                    smooth: false, isHighlighter: true)
+        let origin = CGPoint(x: 50, y: 50)
+        expect(AnnotationBrush.neonColors.count == 5
+               && AnnotationBrush.neonColors[0] == AnnotationColor(red: 1, green: 244 / 255, blue: 92 / 255)
+               && AnnotationBrush.neonColors[4] == AnnotationColor(red: 1, green: 159 / 255, blue: 67 / 255),
+               "freehand highlighter has the dedicated neon sRGB palette")
+        for scale: CGFloat in [0.5, 1, 2] {
+            let tap = AnnotationElement(tool: .freehand, points: [origin], style: style)
+            let footprint = AnnotationInteractionFeedback.footprint(style: style, erasing: false, at: origin, scale: scale)
+            let ink = AnnotationGeometry.path(tap, scale: scale)
+            expect(footprint.boundingBoxOfPath == ink.boundingBoxOfPath,
+                   "highlighter cursor matches its actual stamp at \(scale)x")
+            expect(abs(footprint.boundingBoxOfPath.width - 13.6 * scale) < 0.001
+                   && abs(footprint.boundingBoxOfPath.height - 20 * scale) < 0.001,
+                   "flat nib uses source rectangular proportions at \(scale)x")
+            let actual = bitmap { AnnotationRenderer.draw(tap, in: $0, scale: scale, shadowsEnabled: false) }
+            let expected = bitmap {
+                $0.addPath(footprint)
+                $0.setFillColor(AnnotationRenderer.color(style).cgColor)
+                $0.fillPath()
+            }
+            expect(actual != nil && actual == expected, "single highlighter click renders its rectangular footprint")
+        }
+        var marker = AnnotationElement(tool: .freehand, points: [origin], style: style)
+        _ = AnnotationGeometry.path(marker)
+        marker.appendFreehand([AnnotationInputSample(point: CGPoint(x: 150, y: 50), pressure: 0.3)])
+        let markerPixels = bitmap { AnnotationRenderer.draw(marker, in: $0, scale: 1, shadowsEnabled: false) }
+        let flatPixels = bitmap {
+            $0.setStrokeColor(AnnotationRenderer.color(style).cgColor)
+            $0.setLineWidth(20)
+            $0.setLineCap(.butt)
+            $0.setLineJoin(.bevel)
+            $0.move(to: origin)
+            $0.addLine(to: CGPoint(x: 150, y: 50))
+            $0.strokePath()
+        }
+        expect(markerPixels != nil && markerPixels == flatPixels,
+               "marker transitions from cached tap to flat-ended stroke without retaining a stamp")
+        expect(!AnnotationBrush.ink(marker).contains(CGPoint(x: 45, y: 50)),
+               "highlighter does not acquire round endpoint caps")
+        style.pressure = .hardware
+        marker.style = style
+        expect(bitmap { AnnotationRenderer.draw(marker, in: $0, scale: 1, shadowsEnabled: false) } == flatPixels,
+               "highlighter keeps its flat width instead of inheriting pen pressure taper")
+
+        var penStyle = AnnotationStyle(color: .red, width: 20, pressure: .simulated)
+        var pen = AnnotationElement(tool: .freehand, points: [origin], style: penStyle)
+        pen.pressures = [0.4]
+        expect(AnnotationInteractionFeedback.footprint(style: penStyle, erasing: false, at: origin).boundingBoxOfPath
+               == AnnotationGeometry.path(pen).boundingBoxOfPath, "pen cursor previews its initial simulated pressure")
+        penStyle.pressure = .constant
+        let eraserFootprint = AnnotationInteractionFeedback.footprint(style: penStyle, erasing: true)
+        expect(eraserFootprint.boundingBoxOfPath.width == 2 * AnnotationEraserSweep.radius(width: penStyle.width),
+               "eraser cursor radius is the sweep hit radius")
+        expect(AnnotationInteractionFeedback.footprint(style: AnnotationStyle(color: .red, width: .nan),
+               erasing: false).boundingBoxOfPath.width == 6, "cursor sanitizes nonfinite widths")
+
+        let thin = AnnotationElement(tool: .line,
+            points: [CGPoint(x: 50, y: 10), CGPoint(x: 50, y: 90)],
+            style: AnnotationStyle(color: .red, width: 1))
+        var locked = AnnotationElement(tool: .line,
+            points: [CGPoint(x: 60, y: 10), CGPoint(x: 60, y: 90)])
+        locked.isLocked = true
+        let far = AnnotationElement(tool: .rect, rect: CGRect(x: 150, y: 150, width: 30, height: 30))
+        var document = AnnotationDocument()
+        document.elements = [thin, locked, far]
+        document.selectedIDs = [thin.id, locked.id]
+        let original = document.state
+        var sweep = AnnotationEraserSweep()
+        document.begin()
+        sweep.begin(at: CGPoint(x: 0, y: 50), elements: document.elements, radius: 8)
+        sweep.update(to: CGPoint(x: 100, y: 50), elements: document.elements, radius: 8)
+        expect(sweep.pendingIDs == [thin.id], "sparse eraser sweep marks unlocked intersections only")
+        expect(document.elements == original.elements && document.selectedIDs == original.selection,
+               "pending fade never mutates elements selection styles or order")
+        let faded = bitmap {
+            $0.setAlpha(AnnotationInteractionFeedback.pendingOpacity)
+            AnnotationRenderer.draw(thin, in: $0, scale: 1, shadowsEnabled: false)
+        }
+        let opaque = bitmap { AnnotationRenderer.draw(thin, in: $0, scale: 1, shadowsEnabled: false) }
+        expect(faded != nil && faded != opaque, "pending targets fade through presentation alpha")
+        sweep.cancel()
+        document.cancel()
+        expect(sweep.pendingIDs.isEmpty && document.state == original && !document.history.canUndo,
+               "cancel restores exact originals without adding an undo entry")
+
+        document.begin()
+        sweep.begin(at: CGPoint(x: 50, y: 50), elements: document.elements, radius: 8)
+        sweep.commit(to: &document.state)
+        document.commit()
+        expect(document.elements == [locked, far] && sweep.pendingIDs.isEmpty,
+               "mouse release deletes pending targets and keeps locks")
+        document.undo()
+        expect(document.elements == original.elements && document.selectedIDs == original.selection
+               && !document.history.canUndo, "one undo restores the entire erase including selection")
+        document.redo()
+        expect(document.elements == [locked, far], "one redo reapplies the whole erase")
+
+        var bound = AnnotationElement(tool: .arrow,
+            points: [CGPoint(x: 130, y: 160), CGPoint(x: 150, y: 160)])
+        bound.endBinding = AnnotationBinding(targetID: far.id, anchor: CGPoint(x: 0, y: 1 / 3))
+        document.elements = [far, bound]
+        document.begin()
+        sweep.begin(at: CGPoint(x: 180, y: 170), elements: document.elements, radius: 1)
+        sweep.commit(to: &document.state)
+        document.commit()
+        expect(document.elements.count == 1 && document.elements[0].endBinding == nil,
+               "release detaches erased binding targets without dangling IDs")
+        document.undo()
+        expect(document.elements == [far, bound], "undo restores erased targets and endpoint bindings together")
+        let emptyCenter = CGPoint(x: 165, y: 165)
+        expect(!AnnotationPathSampling.sweptHit(far, from: emptyCenter, to: emptyCenter, tolerance: 1),
+               "eraser does not mistake an unfilled shape bounding box for ink")
+        let outsideCap = CGPoint(x: 45, y: 50)
+        expect(!AnnotationPathSampling.sweptHit(marker, from: outsideCap, to: outsideCap, tolerance: 1),
+               "eraser respects the flat marker endpoint")
+        var text = AnnotationElement(tool: .text, rect: CGRect(x: 20, y: 20, width: 100, height: 20), text: "rotate")
+        text.rotation = .pi / 2
+        let rotatedPoint = CGPoint(x: 70, y: 70)
+        expect(AnnotationPathSampling.sweptHit(text, from: rotatedPoint, to: rotatedPoint, tolerance: 1),
+               "eraser uses rotated text geometry")
+
+        expect(AnnotationInteractionFeedback.isShapeGhost(far, draftID: far.id)
+               && !AnnotationInteractionFeedback.isShapeGhost(pen, draftID: pen.id),
+               "shape ghost is distinct from freehand ink")
+        expect(AnnotationInteractionFeedback.committed([thin, far], draftID: far.id) == [thin],
+               "in-progress ghost cannot enter screenshot exports")
+        expect(AnnotationInteractionFeedback.committed([thin, far], draftID: nil) == [thin, far],
+               "committed shapes export normally after mouse release")
     }
 
     private static func testEditing(_ expect: (Bool, String) -> Void) {

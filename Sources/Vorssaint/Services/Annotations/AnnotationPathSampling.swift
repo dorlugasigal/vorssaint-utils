@@ -48,22 +48,31 @@ enum AnnotationPathSampling {
 
     static func sweptHit(_ element: AnnotationElement, from start: CGPoint, to end: CGPoint,
                          tolerance: CGFloat) -> Bool {
-        let path = element.tool == .text
-            ? CGPath(rect: element.rect, transform: nil) : AnnotationGeometry.path(element)
-        var paths = [path]
+        let path: CGPath
+        if element.tool == .text {
+            var transform = AnnotationGeometry.transform(element)
+            path = CGPath(rect: element.rect, transform: &transform)
+        } else if element.tool == .freehand {
+            path = AnnotationBrush.ink(element)
+        } else { path = AnnotationGeometry.path(element) }
+        let filled = element.tool == .freehand || element.tool == .text || element.tool == .redact
+            || element.tool == .highlight || AnnotationLinear.usesLegacyArrow(element)
+            || ((element.tool == .rect || element.tool == .ellipse) && element.resolvedStyle.fill != .none)
+        var paths: [(CGPath, Bool)] = [(path, filled)]
         if element.tool == .arrow || element.tool == .line {
-            paths.append(contentsOf: AnnotationLinear.heads(element, scale: 1).map(\.0))
+            paths.append(contentsOf: AnnotationLinear.heads(element, scale: 1))
         }
-        let bounds = paths.reduce(CGRect.null) { $0.union($1.boundingBoxOfPath) }
+        let bounds = paths.reduce(CGRect.null) { $0.union($1.0.boundingBoxOfPath) }
         let sweep = ScreenshotSupport.selectionRect(from: start, to: end)
             .insetBy(dx: -tolerance, dy: -tolerance)
-        guard sweep.intersects(bounds.insetBy(dx: -tolerance, dy: -tolerance)) else { return false }
-        if path.contains(start) || path.contains(end) { return true }
-        for geometry in paths {
+        let margin = tolerance + element.resolvedStyle.width / 2
+        guard sweep.intersects(bounds.insetBy(dx: -margin, dy: -margin)) else { return false }
+        for (geometry, filled) in paths {
+            if filled && (geometry.contains(start) || geometry.contains(end)) { return true }
             for points in polylines(geometry) where points.count > 1 {
                 for index in 1..<points.count {
                     if segmentDistance(start, end, points[index - 1], points[index])
-                        <= tolerance + element.resolvedStyle.width / 2 { return true }
+                        <= tolerance + (filled ? 0 : element.resolvedStyle.width / 2) { return true }
                 }
             }
         }

@@ -110,6 +110,7 @@ struct AnnotationStyle: Equatable {
     var boldText = false
     var pressure: Pressure = .constant
     var character: Character = .architect
+    var isHighlighter = false
 
     func sanitized() -> AnnotationStyle {
         var result = self
@@ -184,7 +185,14 @@ enum AnnotationGeometry {
                     strokeWidth: element.resolvedStyle.width))
             } else { path.addPath(AnnotationLinear.path(element)) }
         case .freehand:
-            if element.resolvedStyle.pressure != .constant {
+            if element.points.count == 1, let point = element.points.first {
+                let pressure = element.resolvedStyle.isHighlighter || element.resolvedStyle.pressure == .constant
+                    ? 1 : element.pressures.first ?? 1
+                path.addPath(AnnotationBrush.stamp(at: point, width: element.resolvedStyle.width * pressure,
+                                                   highlighter: element.resolvedStyle.isHighlighter))
+                break
+            }
+            if element.resolvedStyle.pressure != .constant && !element.resolvedStyle.isHighlighter {
                 path.addPath(AnnotationFreehand.outline(element))
                 break
             }
@@ -205,6 +213,7 @@ enum AnnotationGeometry {
         case .text, .sticker, .counter, .select, .crop: break
         }
         let rough = element.tool == .redact || element.tool == .highlight || element.tool == .pixelate
+            || (element.tool == .freehand && element.resolvedStyle.isHighlighter)
             ? path : AnnotationRoughness.path(path, character: element.resolvedStyle.character,
                                              seed: element.roughSeed, width: element.resolvedStyle.width, scale: renderScale)
         var transform = transform(element)
@@ -215,13 +224,14 @@ enum AnnotationGeometry {
                     imageSize: CGSize, includeShapeInteriors: Bool = true) -> Bool {
         let tolerance = 10 * scale
         switch element.tool {
-        case .arrow, .line, .freehand:
+        case .freehand:
+            let ink = AnnotationBrush.ink(element, scale: scale)
+            return ink.contains(point) || ink.copy(strokingWithWidth: 2 * tolerance,
+                lineCap: .round, lineJoin: .round, miterLimit: 10).contains(point)
+        case .arrow, .line:
             var style = element.resolvedStyle
             style.width *= scale
             let geometry = path(element, scale: scale)
-            if element.tool == .freehand && element.resolvedStyle.pressure != .constant && geometry.contains(point) {
-                return true
-            }
             if AnnotationLinear.usesLegacyArrow(element) && geometry.contains(point) { return true }
             if element.tool == .arrow || element.tool == .line {
                 for (head, filled) in AnnotationLinear.heads(element, scale: scale) {

@@ -14,9 +14,10 @@ private struct AnnotationToolbarView: View {
     @ObservedObject var service: ScreenAnnotationService
     @ObservedObject private var localization = L10n.shared
 
-    private let presetColors: [AnnotationColor] = [
-        .red, .orange, .yellow, .green, .blue, .purple, .black, .white
-    ]
+    private var presetColors: [AnnotationColor] {
+        service.inspectorStyle.isHighlighter ? AnnotationBrush.neonColors
+            : [.red, .orange, .yellow, .green, .blue, .purple, .black, .white]
+    }
     private var strings: ScreenAnnotationStrings { FeatureStrings.annotation(localization.language) }
 
     var body: some View {
@@ -48,7 +49,7 @@ private struct AnnotationToolbarView: View {
                             .fill(Color(red: color.red, green: color.green, blue: color.blue))
                             .frame(width: 18, height: 18)
                             .overlay(Circle().strokeBorder(
-                                service.color == color ? Color.primary : Color.clear, lineWidth: 2.5))
+                                service.inspectorStyle.color == color ? Color.primary : Color.clear, lineWidth: 2.5))
                     }
                     .buttonStyle(.borderless)
                 }
