@@ -7,6 +7,7 @@ enum AnnotationTests {
     static func run(_ expect: (Bool, String) -> Void) {
         testControlPreviews(expect)
         testColorPalette(expect)
+        testSimplifiedPreferences(expect)
         testPathSampling(expect)
         testStraightLineTool(expect)
         testToolbarExpansion(expect)
@@ -126,6 +127,21 @@ enum AnnotationTests {
                 !AnnotationPickerStrings.text($0, language).isEmpty
             }, "all inspector section labels localized")
         }
+    }
+
+    private static func testSimplifiedPreferences(_ expect: (Bool, String) -> Void) {
+        var style = AnnotationStyle(color: .red, width: 4)
+        expect(!style.hasVisibleFill, "unchosen background hides fill options")
+        style.setFillColor(.blue)
+        expect(style.fill == .solid && style.hasVisibleFill, "choosing a background enables fill")
+        style.fill = .crossHatch
+        style.setFillColor(.green)
+        expect(style.fill == .crossHatch, "changing background preserves the chosen fill pattern")
+        style.setFillColor(AnnotationColor(red: 0, green: 0, blue: 0, alpha: 0))
+        expect(style.fill == .none && !style.hasVisibleFill, "transparent background hides fill options")
+        expect(AnnotationStyle.Pressure.selectable == [.constant, .simulated], "pressure picker omits tablet")
+        expect(!AnnotationArrowhead.selectable.contains(.legacy)
+               && AnnotationArrowhead.selectable.first == AnnotationArrowhead.none, "arrowhead picker offers one no-head option")
     }
 
     private static func testSmartDrawResults(_ expect: (Bool, String) -> Void) {
@@ -1031,6 +1047,7 @@ enum AnnotationTests {
             AnnotationStyle.Shape.allCases.map { .shape($0) },
             AnnotationStyle.Character.allCases.map { .character($0) },
             AnnotationStyle.Pressure.allCases.map { .pressure($0) },
+            [.edges(rounded: false), .edges(rounded: true)],
             [CGFloat(0.75), 1, 1.5].map { .headSize($0) },
             [.route(curved: false), .route(curved: true)]
         ]
@@ -1255,10 +1272,12 @@ enum AnnotationTests {
                "roughness picker offers only clean and rough")
         var retired = style
         retired.character = .artist
+        retired.pressure = .hardware
         do {
             let data = try JSONEncoder().encode(["pen": retired])
             let original = try JSONDecoder().decode([String: AnnotationStyle].self, from: data)
             expect(original["pen"]?.character == .artist, "legacy roughness remains decodable without restyling elements")
+            expect(original["pen"]?.pressure == .hardware, "legacy tablet pressure remains decodable")
             for key in [DefaultsKey.screenAnnotationStyles, DefaultsKey.screenshotAnnotationStyles] {
                 defaults.set(String(decoding: data, as: UTF8.self), forKey: key)
                 let migrated = AnnotationStylePreferences.load(defaults: defaults, key: key)["pen"]

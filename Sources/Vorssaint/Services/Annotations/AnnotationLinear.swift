@@ -9,6 +9,7 @@ import Foundation
 enum AnnotationArrowhead: Int, Codable, CaseIterable {
     case legacy, none, arrow, triangle, triangleOutline, circle, circleOutline
     case bar, diamond, diamondOutline, crowFoot, oneOrMany, zeroOrOne, zeroOrMany
+    static var selectable: [AnnotationArrowhead] { allCases.filter { $0 != .legacy } }
 
     var isFilled: Bool { self == .triangle || self == .circle || self == .diamond }
 }

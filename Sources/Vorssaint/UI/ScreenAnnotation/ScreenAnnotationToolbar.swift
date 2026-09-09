@@ -62,15 +62,6 @@ private struct AnnotationToolbarView: View {
                                             smartDraw: $service.smartDrawEnabled,
                                             erasing: service.tool == .eraser)
                             .disabled(service.selectionIsLocked)
-                        if hasSelection {
-                            AnnotationInspectorSection(
-                                title: AnnotationPickerStrings.text(.transform, localization.language),
-                                symbol: "arrow.up.left.and.arrow.down.right") {
-                                AnnotationTransformControls(
-                                    rotation: Binding(get: { service.selectionRotation }, set: service.rotateSelection),
-                                    resize: service.resizeSelection, editingChanged: service.styleEditingChanged)
-                            }.disabled(service.selectionIsLocked)
-                        }
                     }
                 }
             }
@@ -102,17 +93,21 @@ private struct AnnotationToolbarView: View {
             }
             .help(FeatureStrings.screenshot(localization.language).backdropLabel)
             .accessibilityLabel(FeatureStrings.screenshot(localization.language).backdropLabel)
-            Button { service.toggleDrawing() } label: {
-                VStack(alignment: .leading, spacing: 1) {
-                    Label(AnnotationSessionStrings.mode(service.isDrawingActive, localization.language),
-                          systemImage: service.isDrawingActive ? "pencil.tip" : "cursorarrow")
-                    if let hint = service.escapeHint {
-                        Text(hint).font(.system(size: 11)).foregroundStyle(.secondary)
-                    } else if let shortcut = service.activationShortcutHint {
-                        Text("\(shortcut): \(AnnotationSessionStrings.mode(true, localization.language))")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                    }
-                }.frame(height: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                Picker("", selection: Binding(get: { service.isDrawingActive }, set: {
+                    if $0 != service.isDrawingActive { service.toggleDrawing() }
+                })) {
+                    Label(AnnotationSessionStrings.mode(true, localization.language), systemImage: "pencil.tip").tag(true)
+                    Label(AnnotationSessionStrings.mode(false, localization.language), systemImage: "cursorarrow").tag(false)
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 176)
+                .accessibilityLabel("\(AnnotationSessionStrings.mode(true, localization.language)) / \(AnnotationSessionStrings.mode(false, localization.language))")
+                if let hint = service.escapeHint {
+                    Text(hint).font(.system(size: 11)).foregroundStyle(.secondary)
+                } else if let shortcut = service.activationShortcutHint {
+                    Text("\(shortcut): \(AnnotationSessionStrings.mode(true, localization.language))")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 0)
             footerButton("arrow.uturn.backward", title: strings.undo, enabled: service.canUndo, action: service.undo)

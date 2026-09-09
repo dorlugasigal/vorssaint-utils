@@ -70,7 +70,11 @@ enum AnnotationHostSelfTest {
             clicks.cancelActiveEdit()
         }
         let model = ScreenshotEditorModel(image: image, scale: 1, defaults: defaults)
-        expect(!model.smartDrawEnabled, "Smart Draw defaults off")
+        expect(model.smartDrawEnabled, "Smart Draw defaults on")
+        model.smartDrawEnabled = false
+        expect(!ScreenshotEditorModel(image: image, scale: 1, defaults: defaults).smartDrawEnabled,
+               "explicit Smart Draw opt-out is preserved")
+        model.smartDrawEnabled = true
         model.tool = .arrow
         model.beginDrag(at: CGPoint(x: 30, y: 40))
         model.endDrag(at: CGPoint(x: 170, y: 120), isTap: false)

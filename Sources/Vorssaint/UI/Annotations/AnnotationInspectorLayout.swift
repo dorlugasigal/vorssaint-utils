@@ -50,6 +50,7 @@ struct AnnotationInspectorViewport<Content: View>: NSViewRepresentable {
 
     final class Viewport: NSScrollView {
         let host: NSHostingController<Content>
+        override var mouseDownCanMoveWindow: Bool { window?.isMovableByWindowBackground == true }
 
         init(rootView: Content) {
             host = NSHostingController(rootView: rootView)

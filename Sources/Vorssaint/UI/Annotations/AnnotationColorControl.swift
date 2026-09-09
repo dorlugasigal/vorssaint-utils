@@ -4,17 +4,25 @@
 import AppKit
 import SwiftUI
 
+private enum AnnotationColorCheckerboard {
+    static func draw(in context: CGContext, rect: CGRect) {
+        for row in 0..<Int(ceil(rect.height / 6)) {
+            for column in 0..<Int(ceil(rect.width / 6)) {
+                context.setFillColor(CGColor(gray: (row + column).isMultiple(of: 2) ? 1 : 0.7, alpha: 1))
+                context.fill(CGRect(x: rect.minX + CGFloat(column * 6), y: rect.minY + CGFloat(row * 6), width: 6, height: 6))
+            }
+        }
+    }
+}
+
 struct AnnotationColorSwatch: View {
     var color: AnnotationColor
     var selected = false
 
     var body: some View {
         Canvas { context, size in
-            for row in 0..<Int(ceil(size.height / 6)) {
-                for column in 0..<Int(ceil(size.width / 6)) {
-                    context.fill(Path(CGRect(x: column * 6, y: row * 6, width: 6, height: 6)),
-                                 with: .color((row + column).isMultiple(of: 2) ? .white : .gray))
-                }
+            context.withCGContext {
+                AnnotationColorCheckerboard.draw(in: $0, rect: CGRect(origin: .zero, size: size))
             }
         }
         .overlay(Color(red: color.red, green: color.green, blue: color.blue).opacity(color.alpha))
@@ -28,7 +36,11 @@ struct AnnotationColorSwatch: View {
 
 final class AnnotationPaletteState: ObservableObject {
     @Published var color: AnnotationColor
-    init(color: AnnotationColor) { self.color = color }
+    @Published var opacity: CGFloat
+    init(color: AnnotationColor, opacity: CGFloat = 1) {
+        self.color = color
+        self.opacity = opacity
+    }
 }
 
 struct AnnotationColorPaletteView: View {
@@ -37,6 +49,7 @@ struct AnnotationColorPaletteView: View {
     var allowsAlpha: Bool
     var suggestedColors: [AnnotationColor]
     var select: (AnnotationColor) -> Void
+    var opacityChanged: (CGFloat) -> Void
     var sample: () -> Void
     var done: () -> Void
     @ObservedObject private var localization = L10n.shared
@@ -46,12 +59,14 @@ struct AnnotationColorPaletteView: View {
 
     init(state: AnnotationPaletteState, title: String, allowsAlpha: Bool,
          suggestedColors: [AnnotationColor] = AnnotationColorPalette.colors,
-         select: @escaping (AnnotationColor) -> Void, sample: @escaping () -> Void, done: @escaping () -> Void) {
+         select: @escaping (AnnotationColor) -> Void, opacityChanged: @escaping (CGFloat) -> Void,
+         sample: @escaping () -> Void, done: @escaping () -> Void) {
         self.state = state
         self.title = title
         self.allowsAlpha = allowsAlpha
         self.suggestedColors = suggestedColors
         self.select = select
+        self.opacityChanged = opacityChanged
         self.sample = sample
         self.done = done
         _family = State(initialValue: state.color)
@@ -97,13 +112,10 @@ struct AnnotationColorPaletteView: View {
             if allowsAlpha {
                 HStack {
                     Text(AnnotationSessionStrings.opacity(localization.language)).font(.caption)
-                    Slider(value: Binding(get: { state.color.alpha }, set: { alpha in
-                        var color = state.color
-                        color.alpha = alpha
-                        family.alpha = alpha
-                        choose(color)
-                    }), in: 0...1)
+                    Slider(value: Binding(get: { state.opacity }, set: opacityChanged), in: 0...1)
                     .accessibilityLabel(AnnotationSessionStrings.opacity(localization.language))
+                    Text(Double(state.opacity).formatted(.percent.precision(.fractionLength(0))))
+                        .font(.caption.monospacedDigit()).frame(width: 36)
                 }
             }
             HStack {
@@ -150,15 +162,18 @@ struct AnnotationColorPaletteView: View {
 
 struct AnnotationColorControl: NSViewRepresentable {
     @Binding var color: AnnotationColor
+    @Binding var opacity: CGFloat
     var editingChanged: (Bool) -> Void
     var allowsAlpha = true
     var title = ""
     var suggestedColors: [AnnotationColor] = AnnotationColorPalette.colors
+    var side: CGFloat = 36
 
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton(title: "", target: context.coordinator, action: #selector(Coordinator.toggle(_:)))
         button.isBordered = false
         button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
         return button
     }
 
@@ -166,20 +181,26 @@ struct AnnotationColorControl: NSViewRepresentable {
         context.coordinator.control = self
         button.isEnabled = context.environment.isEnabled
         let color = color.clamped()
-        button.image = NSImage(size: CGSize(width: 36, height: 36), flipped: false) { bounds in
+        button.image = NSImage(size: CGSize(width: side, height: side), flipped: false) { bounds in
             let rect = bounds.insetBy(dx: 2, dy: 2)
             let path = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
             NSColor.controlBackgroundColor.setFill()
             path.fill()
+            if color.alpha < 1, let context = NSGraphicsContext.current?.cgContext {
+                context.saveGState()
+                path.addClip()
+                AnnotationColorCheckerboard.draw(in: context, rect: rect)
+                context.restoreGState()
+            }
             NSColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha).setFill()
             path.fill()
             NSColor.separatorColor.setStroke()
             path.stroke()
             let luminance = 0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue
-            let ink: NSColor = color.alpha < 0.5 ? .labelColor : luminance > 0.5 ? .black : .white
+            let ink: NSColor = color.alpha < 0.5 || luminance > 0.5 ? .black : .white
             NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [ink]))?
-                .draw(in: CGRect(x: 23, y: 7, width: 8, height: 6))
+                .draw(in: CGRect(x: bounds.maxX - 13, y: 5, width: 8, height: 6))
             return true
         }
         let label = title.isEmpty ? FeatureStrings.screenshot(L10n.shared.language).colorLabel : title
@@ -209,10 +230,11 @@ struct AnnotationColorControl: NSViewRepresentable {
         static func closeCurrent() { active?.close(restoreFocus: false) }
 
         func synchronize() {
-            guard let state, state.color != control.color else { return }
+            guard let state, state.color != control.color || state.opacity != control.opacity else { return }
             DispatchQueue.main.async { [weak self, weak state] in
                 guard let self, Self.active === self else { return }
                 state?.color = self.control.color
+                state?.opacity = self.control.opacity
             }
         }
 
@@ -224,7 +246,7 @@ struct AnnotationColorControl: NSViewRepresentable {
             Self.active = self
             sessionID = UUID()
             control.editingChanged(true)
-            let state = AnnotationPaletteState(color: control.color)
+            let state = AnnotationPaletteState(color: control.color, opacity: control.opacity)
             self.state = state
             let popover = NSPopover()
             self.popover = popover
@@ -235,18 +257,13 @@ struct AnnotationColorControl: NSViewRepresentable {
             popover.contentViewController = NSHostingController(rootView: AnnotationColorPaletteView(
                 state: state, title: title, allowsAlpha: control.allowsAlpha, suggestedColors: control.suggestedColors,
                 select: { [weak self] in self?.select($0) },
+                opacityChanged: { [weak self] in self?.setOpacity($0) },
                 sample: { [weak self] in self?.sample() },
                 done: { [weak self] in self?.close() }))
             observers.append(NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification, object: owner, queue: .main) { [weak self] _ in
                     self?.close(restoreFocus: false)
                 })
-            for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
-                observers.append(NotificationCenter.default.addObserver(
-                    forName: name, object: owner, queue: .main) { [weak self] _ in
-                        self?.close(restoreFocus: false)
-                    })
-            }
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
         }
 
@@ -272,6 +289,12 @@ struct AnnotationColorControl: NSViewRepresentable {
             if !control.allowsAlpha { color.alpha = 1 }
             state?.color = color
             control.color = color
+        }
+
+        private func setOpacity(_ value: CGFloat) {
+            guard Self.active === self, control.allowsAlpha else { return }
+            state?.opacity = value
+            control.opacity = value
         }
 
         private func sample() {

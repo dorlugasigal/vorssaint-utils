@@ -13,6 +13,7 @@ enum AnnotationControlPreview {
     case headSize(CGFloat)
     case character(AnnotationStyle.Character)
     case pressure(AnnotationStyle.Pressure)
+    case edges(rounded: Bool)
 
     func draw(in context: CGContext, color: AnnotationColor) {
         // Fixed logical dimensions keep production arrowhead metrics legible
@@ -24,6 +25,8 @@ enum AnnotationControlPreview {
             rect: CGRect(x: 20, y: 20, width: 80, height: 80), style: style)
         element.roughSeed = 42
         switch self {
+        case .edges(let rounded):
+            style.roundness = rounded ? 0.25 : 0
         case .pressure(let pressure):
             style.pressure = pressure
             style.width = 22

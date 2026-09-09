@@ -6,6 +6,7 @@ import SwiftUI
 struct AnnotationPreviewTile: View {
     var preview: AnnotationControlPreview
     var isSelected = false
+    var side: CGFloat = AnnotationUIMetrics.tileSide
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
@@ -19,8 +20,8 @@ struct AnnotationPreviewTile: View {
                 cg.restoreGState()
             }
         }
-        .frame(width: 26, height: 26)
-        .frame(width: AnnotationUIMetrics.tileSide, height: AnnotationUIMetrics.tileSide)
+        .frame(width: min(26, side - 8), height: min(26, side - 8))
+        .frame(width: side, height: side)
         .background(isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(isHovered ? 0.09 : 0.025),
                     in: RoundedRectangle(cornerRadius: 9))
         .overlay {
@@ -76,12 +77,13 @@ struct AnnotationArrowheadChoice: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(label).font(.headline)
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(44), spacing: 8), count: 4), spacing: 8) {
-                    ForEach(AnnotationArrowhead.allCases, id: \.rawValue) { head in
+                    ForEach(AnnotationArrowhead.selectable, id: \.rawValue) { head in
                         Button {
                             selection = head
                             isPresented = false
                         } label: {
-                            AnnotationPreviewTile(preview: .head(head, start: isStart), isSelected: selection == head)
+                            AnnotationPreviewTile(preview: .head(head, start: isStart),
+                                                  isSelected: head == (selection == .legacy ? (isStart ? .none : .triangle) : selection))
                         }
                         .buttonStyle(.plain)
                         .help(AnnotationLinearStrings.head(head, localization.language))

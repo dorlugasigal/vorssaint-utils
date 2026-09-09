@@ -52,7 +52,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     fileprivate var pendingEraseIDs: Set<UUID> { eraserSweep.pendingIDs }
     private let smartDraw = AnnotationSmartDraw()
     private var strokeStartTime: TimeInterval = 0
-    @Published var smartDrawEnabled = false {
+    @Published var smartDrawEnabled = true {
         didSet {
             defaults.set(smartDrawEnabled, forKey: DefaultsKey.screenAnnotationSmartDraw)
             if !smartDrawEnabled { smartDraw.cancel() }
@@ -345,7 +345,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         p.ignoresMouseEvents = false
         p.contentViewController = host
-        p.isMovableByWindowBackground = false
+        p.isMovableByWindowBackground = true
         self.toolbarPanel = p
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
             sessionObservers.append(NotificationCenter.default.addObserver(
@@ -449,7 +449,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - Preferences
 
     func loadPreferences() {
-        smartDrawEnabled = defaults.bool(forKey: DefaultsKey.screenAnnotationSmartDraw)
+        smartDrawEnabled = defaults.object(forKey: DefaultsKey.screenAnnotationSmartDraw) == nil
+            || defaults.bool(forKey: DefaultsKey.screenAnnotationSmartDraw)
         toolStyles = Dictionary(uniqueKeysWithValues:
             AnnotationStylePreferences.load(defaults: defaults, key: DefaultsKey.screenAnnotationStyles).compactMap {
                 guard let tool = AnnotationTool(rawValue: $0.key) else { return nil }
@@ -513,22 +514,6 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     var selectionIsLocked: Bool {
         !selectedIDs.isEmpty && strokes.filter { selectedIDs.contains($0.id) }.allSatisfy(\.isLocked)
     }
-    var selectionRotation: Double {
-        strokes.first(where: { selectedIDs.contains($0.id) })
-            .map { Double(AnnotationSelection.rotation(of: $0)) * 180 / Double.pi } ?? 0
-    }
-
-    func rotateSelection(_ degrees: Double) {
-        let delta = (degrees - selectionRotation) * Double.pi / 180
-        document.edit { AnnotationSelection.transform(&$0, rotation: delta, factor: 1) }
-        refreshDocument()
-    }
-
-    func resizeSelection(_ factor: Double) {
-        document.edit { AnnotationSelection.transform(&$0, rotation: 0, factor: factor) }
-        refreshDocument()
-    }
-
     func styleEditingChanged(_ editing: Bool) {
         if editing { document.begin() } else {
             if editingTextID == nil { document.commit() }
@@ -923,6 +908,12 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             if !condition { failures.append("annotation live host: \(label)") }
         }
         let bounds = CGRect(x: 0, y: 0, width: 500, height: 400)
+        expect(service.smartDrawEnabled, "live Smart Draw defaults on")
+        service.smartDrawEnabled = false
+        let optedOut = ScreenAnnotationService(defaults: defaults)
+        optedOut.loadPreferences()
+        expect(!optedOut.smartDrawEnabled, "live Smart Draw opt-out is preserved")
+        service.smartDrawEnabled = true
         let hints = ScreenAnnotationService(defaults: defaults)
         defaults.set(false, forKey: DefaultsKey.screenAnnotationShortcutEnabled)
         expect(hints.activationShortcutHint == nil, "disabled activation shortcut is not advertised")

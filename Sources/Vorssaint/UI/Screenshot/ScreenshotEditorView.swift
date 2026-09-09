@@ -43,21 +43,6 @@ struct ScreenshotEditorView: View {
                 topBand
                     .padding(.top, 10)
                     .padding(.horizontal, 12)
-                if model.inspectorTool != .crop && model.inspectorTool != .pixelate
-                    && model.inspectorTool != .sticker && model.inspectorTool != .counter
-                    && model.inspectorTool != .select {
-                    AnnotationInspectorViewport(maximumHeight: 400) {
-                        AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
-                                            editingChanged: model.styleEditingChanged, tool: model.inspectorTool,
-                                            smartDraw: $model.smartDrawEnabled, allowsHighlighter: true)
-                            .disabled(model.selectionIsLocked)
-                    }.padding(.horizontal, 12)
-                }
-                if !model.selectedIDs.isEmpty {
-                    AnnotationTransformControls(rotation: Binding(get: { model.selectionRotation }, set: model.rotateSelection),
-                                                resize: model.resizeSelection, editingChanged: model.styleEditingChanged)
-                        .disabled(model.selectionIsLocked)
-                }
                 HStack(spacing: 0) {
                     ScrollView(.vertical) {
                         toolRail
@@ -92,15 +77,6 @@ struct ScreenshotEditorView: View {
         ZStack {
             BrandMark(width: 40, tint: Color(white: 0.92))
             HStack {
-                if model.hasLinearConstruction {
-                    Button(strings.done) { model.finishLinearConstruction() }
-                    Button(strings.cancel) { model.cancelLinearConstruction() }
-                }
-                AnnotationSelectionMenu(hasSelection: !model.selectedIDs.isEmpty) { action in
-                    AnnotationColorPanels.closeCurrent()
-                    commitEditingTextIfNeeded()
-                    model.performSelectionAction(action)
-                }
                 Spacer()
                 actionCluster
             }
@@ -952,10 +928,8 @@ struct ScreenshotEditorView: View {
     }
 
     private var bottomRow: some View {
-        // One row, no stacking: the chips can never collide with the style
-        // bar on a narrow window.
         HStack(alignment: .center, spacing: 10) {
-            infoChip
+            infoChip.layoutPriority(1)
             Spacer(minLength: 6)
             if model.tool == .crop, model.cropDraft != nil {
                 cropBar
@@ -963,12 +937,43 @@ struct ScreenshotEditorView: View {
                 styleBar
             }
             Spacer(minLength: 6)
-            zoomChip
+            zoomChip.layoutPriority(1)
         }
     }
 
     private var styleBar: some View {
+        ViewThatFits(in: .horizontal) {
+            styleBarContents.fixedSize()
+            ScrollView(.horizontal) { styleBarContents }.frame(height: 28)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule(style: .continuous))
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 12, y: 3)
+    }
+
+    private var styleBarContents: some View {
         HStack(spacing: 10) {
+            if ![.crop, .pixelate, .sticker, .counter, .select].contains(model.inspectorTool) {
+                AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
+                                    editingChanged: model.styleEditingChanged, tool: model.inspectorTool,
+                                    smartDraw: $model.smartDrawEnabled, allowsHighlighter: true, compact: true)
+                    .disabled(model.selectionIsLocked)
+                Divider().frame(height: 16)
+            }
+            if model.hasLinearConstruction {
+                Button(strings.done) { model.finishLinearConstruction() }
+                Button(strings.cancel) { model.cancelLinearConstruction() }
+            }
+            AnnotationSelectionMenu(hasSelection: !model.selectedIDs.isEmpty) { action in
+                AnnotationColorPanels.closeCurrent()
+                commitEditingTextIfNeeded()
+                model.performSelectionAction(action)
+            }
             if showsStickerControls {
                 stickerMenu
                 Divider().frame(height: 16)
@@ -998,14 +1003,7 @@ struct ScreenshotEditorView: View {
             Divider().frame(height: 16)
             backdropButton
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule(style: .continuous))
-        .overlay(
-            Capsule(style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.16), radius: 12, y: 3)
+        .frame(height: 28)
     }
 
     private var stickerMenu: some View {

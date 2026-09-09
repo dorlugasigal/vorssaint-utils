@@ -4,7 +4,7 @@
 enum AnnotationPickerStrings {
     enum Field: Int, CaseIterable {
         case colors, shades, hex, sample, stroke, heads, route, invalidHex, transparent
-        case width, roughness, transform, eraserSize
+        case width, roughness, eraserSize, edges, sharp, rounded
     }
 
     static func text(_ field: Field, _ language: AppLanguage) -> String {
@@ -13,18 +13,18 @@ enum AnnotationPickerStrings {
 
     private static func layoutLabels(_ language: AppLanguage) -> [String] {
         switch language {
-        case .enUS: return ["Width", "Roughness", "Transform", "Eraser size"]
-        case .ptBR: return ["Espessura", "Irregularidade", "Transformar", "Tamanho da borracha"]
-        case .tr: return ["Kalınlık", "Pürüzlülük", "Dönüştür", "Silgi boyutu"]
-        case .ru: return ["Толщина", "Неровность", "Преобразование", "Размер ластика"]
-        case .es: return ["Grosor", "Irregularidad", "Transformar", "Tamaño del borrador"]
-        case .de: return ["Breite", "Unregelmäßigkeit", "Transformieren", "Radierergröße"]
-        case .fr: return ["Épaisseur", "Irrégularité", "Transformer", "Taille de la gomme"]
-        case .it: return ["Spessore", "Irregolarità", "Trasforma", "Dimensione gomma"]
-        case .ja: return ["太さ", "ラフさ", "変形", "消しゴムのサイズ"]
-        case .ko: return ["두께", "거칠기", "변형", "지우개 크기"]
-        case .zhHans: return ["宽度", "粗糙度", "变换", "橡皮擦大小"]
-        case .zhTW, .zhHK: return ["寬度", "粗糙度", "變換", "橡皮擦大小"]
+        case .enUS: return ["Width", "Roughness", "Eraser size", "Edges", "Sharp", "Rounded"]
+        case .ptBR: return ["Espessura", "Irregularidade", "Tamanho da borracha", "Bordas", "Retas", "Arredondadas"]
+        case .tr: return ["Kalınlık", "Pürüzlülük", "Silgi boyutu", "Kenarlar", "Keskin", "Yuvarlak"]
+        case .ru: return ["Толщина", "Неровность", "Размер ластика", "Углы", "Острые", "Скруглённые"]
+        case .es: return ["Grosor", "Irregularidad", "Tamaño del borrador", "Bordes", "Rectos", "Redondeados"]
+        case .de: return ["Breite", "Unregelmäßigkeit", "Radierergröße", "Kanten", "Eckig", "Abgerundet"]
+        case .fr: return ["Épaisseur", "Irrégularité", "Taille de la gomme", "Bords", "Droits", "Arrondis"]
+        case .it: return ["Spessore", "Irregolarità", "Dimensione gomma", "Bordi", "Netti", "Arrotondati"]
+        case .ja: return ["太さ", "ラフさ", "消しゴムのサイズ", "角", "直角", "丸角"]
+        case .ko: return ["두께", "거칠기", "지우개 크기", "모서리", "각지게", "둥글게"]
+        case .zhHans: return ["宽度", "粗糙度", "橡皮擦大小", "边角", "直角", "圆角"]
+        case .zhTW, .zhHK: return ["寬度", "粗糙度", "橡皮擦大小", "邊角", "直角", "圓角"]
         }
     }
 

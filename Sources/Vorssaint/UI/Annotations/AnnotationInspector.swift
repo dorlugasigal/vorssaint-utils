@@ -9,22 +9,51 @@ enum AnnotationColorPanels {
     static func closeCurrent() { AnnotationColorControl.Coordinator.closeCurrent() }
 }
 
+private struct CompactAnnotationPreference<Content: View>: View {
+    let title: String
+    var preview: AnnotationControlPreview?
+    var symbol = "slider.horizontal.3"
+    var width: CGFloat = 180
+    @ViewBuilder var content: () -> Content
+    @State private var isPresented = false
+
+    var body: some View {
+        Button { isPresented.toggle() } label: {
+            if let preview {
+                AnnotationPreviewTile(preview: preview, isSelected: isPresented, side: 28)
+            } else {
+                Image(systemName: symbol).frame(width: 28, height: 28)
+            }
+        }
+        .buttonStyle(.plain).help(title).accessibilityLabel(title)
+        .popover(isPresented: $isPresented) {
+            content().frame(width: width).padding(12)
+        }
+    }
+}
+
 struct AnnotationInspector: View {
     @Binding var style: AnnotationStyle
     var editingChanged: (Bool) -> Void
     var tool: ScreenshotSupport.Tool
-    var smartDraw: Binding<Bool> = .constant(false)
+    var smartDraw: Binding<Bool> = .constant(true)
     var allowsHighlighter = false
     var erasing = false
+    var compact = false
     @ObservedObject private var localization = L10n.shared
 
     private var strings: ScreenshotFeatureStrings { FeatureStrings.screenshot(localization.language) }
     private var hasStroke: Bool { [.rect, .ellipse, .line, .arrow, .freehand].contains(tool) }
+    private var supportsFill: Bool { tool == .ellipse || (tool == .rect && style.shape != .axes) }
     private func title(_ field: AnnotationPickerStrings.Field) -> String {
         AnnotationPickerStrings.text(field, localization.language)
     }
 
     var body: some View {
+        if compact { compactBar } else { fullInspector }
+    }
+
+    private var fullInspector: some View {
         VStack(alignment: .leading, spacing: 8) {
             if erasing {
                 widthSection
@@ -35,17 +64,18 @@ struct AnnotationInspector: View {
                         VStack(spacing: 8) { strokeSections }
                     }
                 } else if tool != .select && tool != .text { colorSection }
-                if tool == .rect || tool == .ellipse || tool == .arrow
+                if (supportsFill && style.hasVisibleFill)
+                    || (tool == .rect && [.standard, .diamond, .grid, .axes].contains(style.shape)) || tool == .arrow
                     || (tool == .freehand && (!style.isHighlighter || allowsHighlighter)) {
                     Divider()
                 }
                 if tool == .rect && [.standard, .diamond, .grid].contains(style.shape) {
                     ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .top, spacing: 8) { fillSection; shapeControls }
-                        VStack(spacing: 8) { fillSection; shapeControls }
+                        HStack(alignment: .top, spacing: 8) { if style.hasVisibleFill { fillSection }; shapeControls }
+                        VStack(spacing: 8) { if style.hasVisibleFill { fillSection }; shapeControls }
                     }
                 } else {
-                    if tool == .ellipse || (tool == .rect && style.shape != .axes) { fillSection }
+                    if style.hasVisibleFill && supportsFill { fillSection }
                     if tool == .rect { shapeControls }
                 }
                 if tool == .arrow { arrowSections }
@@ -78,24 +108,84 @@ struct AnnotationInspector: View {
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title(.stroke)).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                    AnnotationColorControl(color: $style.color, editingChanged: editingChanged,
+                    AnnotationColorControl(color: $style.color, opacity: $style.opacity, editingChanged: editingChanged,
                                            allowsAlpha: tool != .redact, title: title(.stroke),
                                            suggestedColors: style.isHighlighter ? AnnotationBrush.neonColors : AnnotationColorPalette.colors)
                         .frame(width: 36, height: 36)
                 }
-                if tool == .ellipse || (tool == .rect && style.shape != .axes) {
+                if supportsFill {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(AnnotationStyleStrings.fill(localization.language)).font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
-                        AnnotationColorControl(color: $style.fillColor, editingChanged: editingChanged,
+                        AnnotationColorControl(color: fillColorBinding, opacity: $style.opacity, editingChanged: editingChanged,
                                                title: AnnotationStyleStrings.fill(localization.language))
                             .frame(width: 36, height: 36)
                     }
                 }
             }
-            if tool != .redact { opacitySection }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var fillColorBinding: Binding<AnnotationColor> {
+        Binding(get: {
+            var color = style.fillColor
+            if style.fill == .none { color.alpha = 0 }
+            return color
+        }, set: { color in
+            var updated = style
+            updated.setFillColor(color)
+            style = updated
+        })
+    }
+
+    private var compactBar: some View {
+        HStack(spacing: 6) {
+            AnnotationColorControl(color: $style.color, opacity: $style.opacity, editingChanged: editingChanged,
+                                   allowsAlpha: tool != .redact, title: title(.stroke),
+                                   suggestedColors: style.isHighlighter ? AnnotationBrush.neonColors : AnnotationColorPalette.colors,
+                                   side: 28)
+                .frame(width: 28, height: 28)
+            if supportsFill {
+                AnnotationColorControl(color: fillColorBinding, opacity: $style.opacity, editingChanged: editingChanged,
+                                       title: AnnotationStyleStrings.fill(localization.language), side: 28)
+                    .frame(width: 28, height: 28)
+            }
+            if hasStroke {
+                CompactAnnotationPreference(title: title(.width), symbol: "lineweight") { widthSection }
+                if !style.isHighlighter {
+                    CompactAnnotationPreference(title: AnnotationStyleStrings.pattern(localization.language), preview: .pattern(style.pattern)) {
+                        AnnotationVisualChoices(values: AnnotationStyle.Pattern.allCases, selection: $style.pattern,
+                            label: { AnnotationStyleStrings.patternName($0, localization.language) }, preview: { .pattern($0) })
+                    }
+                    CompactAnnotationPreference(title: title(.roughness), symbol: "scribble") {
+                        let names = AnnotationStyleStrings.characters(localization.language)
+                        AnnotationVisualChoices(values: AnnotationStyle.Character.selectable, selection: $style.character,
+                            label: { names[$0.rawValue + 1] }, preview: { .character($0) })
+                    }
+                }
+            }
+            if supportsFill && style.hasVisibleFill {
+                CompactAnnotationPreference(title: AnnotationStyleStrings.fill(localization.language), preview: .fill(style.fill)) { fillSection }
+            }
+            if tool == .rect && [.standard, .diamond, .grid, .axes].contains(style.shape) {
+                let edges = style.shape == .standard || style.shape == .diamond
+                CompactAnnotationPreference(title: edges ? title(.edges) : AnnotationDiagramStrings.title(style.shape, localization.language),
+                                            preview: edges ? .edges(rounded: style.roundness > 0) : .shape(style.shape),
+                                            width: 280) { shapeControls }
+            }
+            if tool == .arrow {
+                CompactAnnotationPreference(title: title(.heads), preview: .route(curved: style.curved), width: 560) { arrowSections }
+            }
+            if tool == .text {
+                CompactAnnotationPreference(title: AnnotationTextStrings.labels(localization.language)[0],
+                                            symbol: "textformat", width: 380) { textSections }
+            }
+            if tool == .freehand {
+                CompactAnnotationPreference(title: AnnotationInputStrings.labels(localization.language)[0],
+                                            preview: .pressure(style.pressure), width: 340) { freehandSections }
+            }
+        }
     }
 
     private var widthSection: some View {
@@ -116,17 +206,18 @@ struct AnnotationInspector: View {
     private var fillSection: some View {
         AnnotationInspectorSection(title: AnnotationStyleStrings.fill(localization.language),
                                    symbol: "square.lefthalf.filled") {
-            AnnotationVisualChoices(values: AnnotationStyle.Fill.allCases, selection: $style.fill,
+            AnnotationVisualChoices(values: [.solid, .hatch, .crossHatch], selection: $style.fill,
                 label: { AnnotationStyleStrings.fillName($0, localization.language) }, preview: { .fill($0) })
         }
     }
 
     @ViewBuilder private var shapeControls: some View {
         if style.shape == .standard || style.shape == .diamond {
-            AnnotationInspectorSection(title: AnnotationStyleStrings.roundness(localization.language),
+            AnnotationInspectorSection(title: title(.edges),
                                        symbol: "rectangle.roundedtop") {
-                Slider(value: $style.roundness, in: 0...1, onEditingChanged: editingChanged)
-                    .accessibilityLabel(AnnotationStyleStrings.roundness(localization.language))
+                AnnotationVisualChoices(values: [false, true],
+                    selection: Binding(get: { style.roundness > 0 }, set: { style.roundness = $0 ? max(0.25, style.roundness) : 0 }),
+                    label: { title($0 ? .rounded : .sharp) }, preview: { .edges(rounded: $0) })
             }
         } else if style.shape == .grid {
             let names = AnnotationDiagramStrings.labels(localization.language)
@@ -187,13 +278,14 @@ struct AnnotationInspector: View {
         let names = AnnotationTextStrings.labels(localization.language)
         return VStack(spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
-                colorSection
+                if !compact { colorSection }
                 AnnotationInspectorSection(title: names[0], symbol: "textformat") {
                     HStack(spacing: 12) {
                         Picker(names[0], selection: $style.fontFamily) {
                             ForEach(AnnotationStyle.FontFamily.allCases, id: \.rawValue) { family in
                                 Text(names[family.rawValue + 1]).tag(family)
                             }
+
                         }.labelsHidden().frame(width: 180).accessibilityLabel(names[0])
                         Toggle(isOn: $style.boldText) { Image(systemName: "bold") }
                             .toggleStyle(.button).help(names[6]).accessibilityLabel(names[6])
@@ -227,7 +319,7 @@ struct AnnotationInspector: View {
             let names = AnnotationInputStrings.labels(localization.language)
             AnnotationInspectorSection(title: names[0], symbol: "pencil.tip") {
                 HStack(alignment: .top, spacing: 16) {
-                    ForEach(AnnotationStyle.Pressure.allCases, id: \.rawValue) { pressure in
+                    ForEach(AnnotationStyle.Pressure.selectable, id: \.rawValue) { pressure in
                         Button { style.pressure = pressure } label: {
                             VStack(spacing: 6) {
                                 AnnotationPreviewTile(preview: .pressure(pressure), isSelected: style.pressure == pressure)
@@ -261,16 +353,4 @@ struct AnnotationInspector: View {
         }
     }
 
-    private var opacitySection: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "circle.lefthalf.filled")
-                .font(.system(size: 10)).foregroundStyle(.secondary)
-                .help(AnnotationSessionStrings.opacity(localization.language))
-            Slider(value: $style.opacity, in: 0...1, onEditingChanged: editingChanged)
-                .frame(width: 72)
-                .accessibilityLabel(AnnotationSessionStrings.opacity(localization.language))
-            Text(Double(style.opacity).formatted(.percent.precision(.fractionLength(0))))
-                .font(.system(size: 10).monospacedDigit()).frame(width: 30)
-        }
-    }
 }

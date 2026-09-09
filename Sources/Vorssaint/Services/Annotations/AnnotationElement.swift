@@ -79,7 +79,10 @@ struct AnnotationStyle: Codable, Equatable {
     enum Shape: Int, Codable, CaseIterable { case standard, diamond, database, queue, person, grid, axes }
     enum FontFamily: Int, Codable, CaseIterable { case system, serif, monospace, handwriting }
     enum Alignment: Int, Codable, CaseIterable { case left, center, right }
-    enum Pressure: Int, Codable, CaseIterable { case constant, hardware, simulated }
+    enum Pressure: Int, Codable, CaseIterable {
+        case constant, hardware, simulated
+        static let selectable: [Pressure] = [.constant, .simulated]
+    }
     enum Character: Int, Codable, CaseIterable {
         // Preserve the retired artist raw value for existing styles.
         case architect, artist, cartoonist
@@ -111,6 +114,14 @@ struct AnnotationStyle: Codable, Equatable {
     var pressure: Pressure = .constant
     var character: Character = .architect
     var isHighlighter = false
+
+    var hasVisibleFill: Bool { fill != .none && fillColor.alpha > 0 }
+
+    mutating func setFillColor(_ color: AnnotationColor) {
+        fillColor = color.clamped()
+        if fillColor.alpha == 0 { fill = .none }
+        else if fill == .none { fill = .solid }
+    }
 
     func applyingChanges(from previous: AnnotationStyle, to updated: AnnotationStyle) -> AnnotationStyle {
         var result = self

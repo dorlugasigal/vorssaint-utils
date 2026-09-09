@@ -138,7 +138,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     private var strokeStartTime: TimeInterval = 0
     private var gestureCancelled = false
     var hasActiveEdit: Bool { history.isEditing }
-    @Published var smartDrawEnabled = false {
+    @Published var smartDrawEnabled = true {
         didSet {
             defaults.set(smartDrawEnabled, forKey: DefaultsKey.screenshotSmartDraw)
             if !smartDrawEnabled { smartDraw.cancel() }
@@ -189,25 +189,6 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     var selectionIsLocked: Bool {
         !selectedIDs.isEmpty && annotations.filter { selectedIDs.contains($0.id) }.allSatisfy(\.isLocked)
     }
-    var selectionRotation: Double {
-        annotations.first(where: { selectedIDs.contains($0.id) })
-            .map { Double(AnnotationSelection.rotation(of: $0)) * 180 / Double.pi } ?? 0
-    }
-
-    func rotateSelection(_ degrees: Double) {
-        transformSelection(rotation: (degrees - selectionRotation) * Double.pi / 180, factor: 1)
-    }
-
-    func resizeSelection(_ factor: Double) { transformSelection(rotation: 0, factor: factor) }
-
-    private func transformSelection(rotation: Double, factor: Double) {
-        var state = AnnotationDocument.Snapshot(elements: annotations, selection: selectedIDs)
-        AnnotationSelection.transform(&state, rotation: rotation, factor: factor)
-        guard state.elements != annotations else { return }
-        registerUndo()
-        annotations = state.elements
-    }
-
     func selectShape(_ shape: AnnotationStyle.Shape) {
         selectedID = nil
         tool = .rect
@@ -263,7 +244,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         baseImage = image
         self.scale = scale
         toolStyles = AnnotationStylePreferences.load(defaults: defaults, key: DefaultsKey.screenshotAnnotationStyles)
-        smartDrawEnabled = defaults.bool(forKey: DefaultsKey.screenshotSmartDraw)
+        smartDrawEnabled = defaults.object(forKey: DefaultsKey.screenshotSmartDraw) == nil
+            || defaults.bool(forKey: DefaultsKey.screenshotSmartDraw)
         var lastTool = ScreenshotSupport.Tool(
             rawValue: defaults.string(forKey: DefaultsKey.screenshotLastTool) ?? "") ?? .arrow
         if lastTool == .select || lastTool == .crop { lastTool = .arrow }
@@ -1248,8 +1230,8 @@ final class ScreenshotEditorController: NSObject, NSWindowDelegate {
         FeatureStrings.screenshot(L10n.shared.language)
     }
 
-    init(capture: ScreenshotSelectionController.Capture) {
-        model = ScreenshotEditorModel(image: capture.image, scale: capture.scale)
+    init(capture: ScreenshotSelectionController.Capture, defaults: UserDefaults = .standard) {
+        model = ScreenshotEditorModel(image: capture.image, scale: capture.scale, defaults: defaults)
         super.init()
     }
 

@@ -41,8 +41,8 @@ selects the new object immediately. Pen, highlighter and screenshot-specific
 capture tools remain active for repeated use. Choose a drawing tool again to
 create another shape.
 
-Move the toolbar using its dedicated drag handle. The rest of the toolbar,
-including the preference controls, does not drag the window.
+Move the toolbar using its drag handle, labels or empty background. Buttons,
+sliders, text fields and other interactive controls keep their normal behavior.
 Preferences are always open in compact labeled rows, with no More options
 disclosure or separate card per property. The toolbar retains its 648-point
 width and fits its height to the active tool; short screens scroll preferences
@@ -51,8 +51,8 @@ unlocked objects, or the current tool's defaults when nothing is selected.
 Only Stroke and Fill pickers are shown where applicable; there is no duplicate
 external palette. Their native popovers contain suggested colors, shades,
 RGB/RGBA hex input, opacity and an eyedropper. Each picker session is one undo
-transaction. Highlighter suggestions use the neon palette. A short opacity
-slider sits beside the main color controls. The shared system color panel is
+transaction. Highlighter suggestions use the neon palette. Opacity is adjusted
+inside the color pickers, not in the main preferences. The shared system color panel is
 not modified.
 
 The background button cycles transparent, white and black. Transparent
@@ -60,22 +60,27 @@ is the default for each new session.
 Footer hints reflect Escape's current cancel/Interact action and the user's
 configured activation shortcut for Draw or Close. Disabled or failed global
 shortcut registrations are not advertised.
+An explicit Draw/Interact segmented control shows the current mode.
 
 ## Rich editing
 
 The inspector exposes diamond as a Rectangle variant, solid/hatch/crosshatch
-fills, dashes, rounded corners, custom RGBA, opacity, widths, font families,
+fills, dashes, sharp/rounded edge buttons, custom RGBA, opacity, widths, font families,
 font size, bold text, alignment, visual pressure choices and stroke character.
 Width, stroke pattern and roughness have distinct labels. The smoothing
 checkbox is removed; existing stroke-processing defaults remain compatible.
+Fill styles appear only after choosing a nontransparent background color.
+Selecting transparent removes the fill and hides those styles. Pressure offers
+Constant and Simulated; the legacy Tablet value remains readable and saved
+creation defaults migrate to Constant.
 The stroke-character picker offers Architect (clean) and Cartoonist (rough).
 The retired middle Artist preset remains decodable for existing styles;
 saved creation defaults migrate to Architect. Redact is available in the
 live toolbar's custom-shape menu and remains a separate screenshot tool.
 It is always opaque, including when a mixed selection receives a translucent color.
 
-Arrowheads, arrow type and head size are inline sections, not an outer
-popover. Individual head selectors show the full catalog. Click to start an
+Arrowheads, arrow type and head size are inline sections in the live toolbar.
+Individual head selectors omit the duplicate legacy Default entry. Click to start an
 arrow, click to add vertices, and finish with Return,
 Done, double-click or the last-point finish handle. Drag/release creates a
 quick path. Escape/Cancel discards construction. Drag midpoint handles to
@@ -96,8 +101,8 @@ remaps their bindings to the copies; copying a connector alone detaches its
 external bindings.
 
 The selection menu and canvas context menu provide duplicate/delete,
-group/ungroup, lock/unlock and all four layer actions. Continuous rotation and
-scale controls supplement the incremental menu actions. Locked objects resist
+group/ungroup, lock/unlock and all four layer actions. Transform/enlargement
+sliders are removed; direct handles and menu actions remain. Locked objects resist
 direct editing. Screenshot pixelation regions remain axis-aligned.
 
 Text uses the same native `NSTextView` bridge in both hosts. Return inserts a
@@ -116,7 +121,8 @@ do not retain copies of the input arrays, and unchanged paths and arrowheads
 are reused, including hatch geometry. Each geometry cache has bounded
 retention; this is not a document or stroke-size limit.
 
-Smart Draw is off by default. It recognizes circles, ellipses, squares,
+Smart Draw is on by default, while an explicitly saved opt-out is respected.
+It recognizes circles, ellipses, squares,
 rectangles, diamonds and arrows using the source fitting and confidence policy.
 Recognition runs on a serial background queue with bounded input, cancellation
 and generation checks. Unsupported or insufficiently confident strokes remain
@@ -126,6 +132,12 @@ Recognized connectors run the same endpoint-binding finalization as manually
 created connectors.
 
 ## Screenshot compatibility
+
+The screenshot editor keeps a single slim bottom bar. Added color, stroke,
+edge, arrow, text and pressure preferences use compact buttons there, with
+detailed choices in popovers. They do not add panels above the capture or
+stacked preference rows below it. Capture dimensions, zoom, existing actions,
+and screenshot-only tools remain in their original regions.
 
 Existing screenshot tool raw values, order, numbered shortcuts, preset colors,
 stroke widths, arrow silhouette and default smoothing are retained. The
@@ -162,7 +174,7 @@ and uses isolated preference suites without opening application windows.
 | Shared model, rendering and export | `Services/Annotations/AnnotationElement.swift`, `AnnotationRenderer.swift`; `Services/QuickTools/ScreenshotRenderer.swift` | Default screenshot pixel equivalence at 1x/2x in `Tests/AnnotationTests.swift`; host export selftest |
 | Transactions, selection and direct arrow editing | `Services/Annotations/AnnotationDocument.swift`; both host services | `testEditing`; live and screenshot data-host selftests |
 | Inspector, colors and scoped preferences | `UI/Annotations/AnnotationInspector.swift`, `AnnotationColorControl.swift`, `AnnotationInspectorLayout.swift`; shared style preferences and palette | Color/preference tests; all-tool light/dark native layout review |
-| Groups, locks, layers and transforms | `Services/Annotations/AnnotationSelection.swift`; `UI/Annotations/AnnotationSelectionMenu.swift`, `AnnotationTransformControls.swift` | `testSelection`; locked-object host selftests |
+| Groups, locks, layers and transforms | `Services/Annotations/AnnotationSelection.swift`; `UI/Annotations/AnnotationSelectionMenu.swift`; direct canvas handles | `testSelection`; locked-object host selftests |
 | Shapes, fills, dashes and roundness | Shared geometry/renderer and inspector | `testShapeStyles`; default-renderer pixel regressions |
 | Curves, points, heads and construction | `Services/Annotations/AnnotationLinear.swift` | `testLinear`; screenshot control-editing and construction selftests |
 | Endpoint bindings | `Services/Annotations/AnnotationBindings.swift` | `testBindings` |

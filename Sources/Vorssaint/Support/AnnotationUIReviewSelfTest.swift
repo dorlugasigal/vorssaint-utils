@@ -34,13 +34,27 @@ enum AnnotationUIReviewSelfTest {
             render("shortcut-disabled-\(suffix)", host: ScreenAnnotationToolbar.makeController(service: disabled), dark: dark)
             render("palette-\(suffix)", host: NSHostingController(rootView: AnnotationColorPaletteView(
                 state: AnnotationPaletteState(color: .blue), title: "Stroke color", allowsAlpha: true,
-                select: { _ in }, sample: {}, done: {})), dark: dark)
+                select: { _ in }, opacityChanged: { _ in }, sample: {}, done: {})), dark: dark)
             render("short-viewport-\(suffix)", host: NSHostingController(rootView:
                 AnnotationInspectorViewport(maximumHeight: 120) {
                     AnnotationInspector(style: .constant(AnnotationStyle(color: .blue, width: 4)),
                                         editingChanged: { _ in }, tool: .freehand)
                 }.frame(width: 616).background(.regularMaterial)), dark: dark, maximumHeight: 120)
         }
+        guard let context = CGContext(data: nil, width: 640, height: 400, bitsPerComponent: 8, bytesPerRow: 2560,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { fail("screenshot fixture") }
+        context.setFillColor(CGColor(gray: 0.95, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 640, height: 400))
+        guard let image = context.makeImage() else { fail("screenshot fixture image") }
+        let capture = ScreenshotSelectionController.Capture(image: image, scale: 1, anchorRect: .zero)
+        let screenshot = ScreenshotEditorController(capture: capture, defaults: defaults)
+        screenshot.model.tool = .rect
+        screenshot.model.beginDrag(at: CGPoint(x: 40, y: 40))
+        screenshot.model.endDrag(at: CGPoint(x: 200, y: 140), isTap: false)
+        render("screenshot-bottom-preferences", host: NSHostingController(rootView:
+            ScreenshotEditorView(model: screenshot.model, controller: screenshot).frame(width: 1000, height: 700)),
+               dark: true, maximumWidth: 1000)
         var style = AnnotationStyle(color: .blue, width: 4)
         style.textAlignment = .center
         let editor = AnnotationNativeTextEditor(element: AnnotationElement(tool: .text, text: "Centered", style: style), scale: 1)
@@ -56,7 +70,8 @@ enum AnnotationUIReviewSelfTest {
         exit(0)
     }
 
-    private static func render(_ name: String, host: NSViewController, dark: Bool, maximumHeight: CGFloat = 900) {
+    private static func render(_ name: String, host: NSViewController, dark: Bool,
+                               maximumHeight: CGFloat = 900, maximumWidth: CGFloat = 648) {
         let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         host.view.appearance = appearance
         let window = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 648, height: 600),
@@ -74,7 +89,7 @@ enum AnnotationUIReviewSelfTest {
         let size = view.fittingSize
         print("ANNOTATION UI: \(name) \(size)")
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0,
-              size.width <= 648.5, size.height <= maximumHeight + 0.5 else { fail("bounds for \(name): \(size)") }
+              size.width <= maximumWidth + 0.5, size.height <= maximumHeight + 0.5 else { fail("bounds for \(name): \(size)") }
         view.setFrameSize(size)
         view.layoutSubtreeIfNeeded()
         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { fail("bitmap for \(name)") }
