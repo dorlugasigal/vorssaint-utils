@@ -100,9 +100,17 @@ struct AnnotationInspector: View {
                     AnnotationArrowheadChoice(selection: $style.startHead, isStart: true, label: labels[16])
                     AnnotationArrowheadChoice(selection: $style.endHead, isStart: false, label: labels[17])
                 }
-                Slider(value: $style.headSize, in: 1...1.75, onEditingChanged: editingChanged)
-                    .frame(width: 120)
-                    .accessibilityLabel(labels[18])
+                HStack {
+                    AnnotationVisualChoices(values: [CGFloat(0.75), 1, 1.5], selection: $style.headSize,
+                        label: { "\(labels[18]): \(Double($0).formatted(.percent.precision(.fractionLength(0))))" },
+                        preview: { .headSize($0) })
+                    Slider(value: $style.headSize, in: 0.5...2, onEditingChanged: editingChanged)
+                        .frame(width: 100)
+                        .accessibilityLabel(labels[18])
+                    Text(Double(style.headSize).formatted(.percent.precision(.fractionLength(0))))
+                        .font(.caption.monospacedDigit())
+                        .frame(width: 42)
+                }
                 Toggle(AnnotationLinearStrings.bindings(localization.language), isOn: $style.bindEndpoints)
             }
             if tool == .text {

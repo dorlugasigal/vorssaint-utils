@@ -147,11 +147,22 @@ struct AnnotationEditGesture {
             result.endBinding = nil
         case .control(let index):
             result.controls = AnnotationLinear.controls(original)
-            result.controls[index] = point
+            if result.controls.indices.contains(index) {
+                result.controls[index] = point.applying(AnnotationGeometry.transform(original).inverted())
+            }
         case .point(let index):
             if result.points.indices.contains(index) {
-                result.points[index] = point.applying(AnnotationGeometry.transform(original).inverted())
-                result.controls = []
+                let localPoint = point.applying(AnnotationGeometry.transform(original).inverted())
+                let previousPoint = result.points[index]
+                result.points[index] = localPoint
+                if original.resolvedStyle.curved || !original.controls.isEmpty {
+                    result.controls = AnnotationLinear.controls(original)
+                    for controlIndex in [index * 2 - 1, index * 2]
+                    where result.controls.indices.contains(controlIndex) {
+                        result.controls[controlIndex].x += localPoint.x - previousPoint.x
+                        result.controls[controlIndex].y += localPoint.y - previousPoint.y
+                    }
+                }
                 if index == 0 { result.startBinding = nil }
                 if index == result.points.count - 1 { result.endBinding = nil }
             }

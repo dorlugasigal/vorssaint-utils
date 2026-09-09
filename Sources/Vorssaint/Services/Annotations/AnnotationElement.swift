@@ -119,7 +119,7 @@ struct AnnotationStyle: Equatable {
         result.color = color.clamped()
         result.fillColor = fillColor.clamped()
         result.roundness = roundness.isFinite ? min(max(roundness, 0), 1) : 0
-        result.headSize = headSize.isFinite ? min(max(headSize, 1), 1.75) : 1
+        result.headSize = headSize.isFinite ? min(max(headSize, 0.5), 2) : 1
         result.width = width.isFinite ? min(max(width, 1), 40) : 6
         result.opacity = opacity.isFinite ? min(max(opacity, 0), 1) : 1
         if let textSize { result.textSize = textSize.isFinite ? min(max(textSize, 6), 240) : 19 }

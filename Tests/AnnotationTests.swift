@@ -8,6 +8,7 @@ enum AnnotationTests {
         testControlPreviews(expect)
         testToolShortcuts(expect)
         testDiagramShapes(expect)
+        testCurveControlPreservation(expect)
         testEditing(expect)
         testSelection(expect)
         testShapeStyles(expect)
@@ -323,6 +324,31 @@ enum AnnotationTests {
         }
     }
 
+    private static func testCurveControlPreservation(_ expect: (Bool, String) -> Void) {
+        var style = AnnotationStyle(color: .red, width: 3)
+        style.curved = true
+        var arrow = AnnotationElement(tool: .arrow,
+            points: [CGPoint(x: 0, y: 0), CGPoint(x: 50, y: 0), CGPoint(x: 100, y: 0)], style: style)
+        arrow.controls = [CGPoint(x: 10, y: -10), CGPoint(x: 40, y: 10),
+                          CGPoint(x: 60, y: 10), CGPoint(x: 90, y: -10)]
+        let moved = AnnotationEditGesture(original: arrow, anchor: arrow.points[1], handle: .point(1))
+            .updated(to: CGPoint(x: 50, y: 20))
+        expect(moved.controls == [CGPoint(x: 10, y: -10), CGPoint(x: 40, y: 30),
+                                 CGPoint(x: 60, y: 30), CGPoint(x: 90, y: -10)],
+               "moving a curve knot preserves custom tangent handles instead of resetting the curve")
+        arrow.rotation = .pi / 2
+        let worldPoint = CGPoint(x: 70, y: 25)
+        let control = AnnotationEditGesture(original: arrow, anchor: .zero, handle: .control(0))
+            .updated(to: worldPoint)
+        expect(control.controls[0] == worldPoint.applying(AnnotationGeometry.transform(arrow).inverted())
+            && control.controls.dropFirst() == arrow.controls.dropFirst(),
+            "rotated curve handles use local coordinates without changing unrelated handles")
+        style.headSize = 0
+        expect(style.sanitized().headSize == 0.5, "small arrowheads support 50 percent size")
+        style.headSize = 5
+        expect(style.sanitized().headSize == 2, "large arrowheads are capped at 200 percent size")
+    }
+
     private static func testDiagramShapes(_ expect: (Bool, String) -> Void) {
         let bounds = CGRect(x: 30, y: 20, width: 140, height: 120)
         for shape in AnnotationStyle.Shape.allCases.filter(\.isDiagram) {
@@ -394,6 +420,7 @@ enum AnnotationTests {
             AnnotationStyle.Pattern.allCases.map { .pattern($0) },
             [CGFloat(2), 4, 7].map { .width($0) },
             AnnotationStyle.Shape.allCases.map { .shape($0) },
+            [CGFloat(0.75), 1, 1.5].map { .headSize($0) },
             [.route(curved: false), .route(curved: true)]
         ]
         for family in families {

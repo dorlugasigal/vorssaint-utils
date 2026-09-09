@@ -10,6 +10,7 @@ enum AnnotationControlPreview {
     case shape(AnnotationStyle.Shape)
     case route(curved: Bool)
     case head(AnnotationArrowhead, start: Bool)
+    case headSize(CGFloat)
 
     func draw(in context: CGContext, color: AnnotationColor) {
         // Fixed logical dimensions keep production arrowhead metrics legible
@@ -42,6 +43,11 @@ enum AnnotationControlPreview {
             element.tool = .arrow
             element.points = [CGPoint(x: 15, y: 60), CGPoint(x: 105, y: 60)]
             if start { style.startHead = head } else { style.endHead = head }
+        case .headSize(let size):
+            element.tool = .arrow
+            element.points = [CGPoint(x: 15, y: 60), CGPoint(x: 105, y: 60)]
+            style.endHead = .arrow
+            style.headSize = size
         }
         element.style = style
         AnnotationRenderer.draw(element, in: context, scale: 1, shadowsEnabled: false)
