@@ -73,7 +73,8 @@ Fill styles appear only after choosing a nontransparent background color.
 Selecting transparent removes the fill and hides those styles. Pressure offers
 Constant and Simulated; the legacy Tablet value remains readable and saved
 creation defaults migrate to Constant.
-The stroke-character picker offers Architect (clean) and Cartoonist (rough).
+The stroke-character picker offers Clean, Sketchy and Wild. Sketchy uses
+Rough.js strength 2 for shapes; Wild keeps the more exaggerated strength 6.
 Rough shape outlines use independent paired strokes for each edge, following
 Rough.js's line/cubic construction rather than two offset closed rectangles.
 Fills, interior hit testing and connector anchors use a separate canonical
@@ -85,8 +86,8 @@ different natural stroke overlaps. The rough shape preset deliberately uses
 strength 6 (three times Excalidraw's Cartoonist strength), with reduced distortion
 on tiny shapes. It remains seeded: redrawing, exporting or reopening a picker
 does not randomly change an existing outline.
-The retired middle Artist preset remains decodable for existing styles;
-saved creation defaults migrate to Architect. Redact is available in the
+Existing serialized style identifiers remain compatible, and each level is
+retained in per-tool preferences. Redact is available in the
 live toolbar's custom-shape menu and remains a separate screenshot tool.
 It is always opaque, including when a mixed selection receives a translucent color.
 

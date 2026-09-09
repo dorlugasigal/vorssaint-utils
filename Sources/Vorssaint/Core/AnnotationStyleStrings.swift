@@ -4,18 +4,18 @@
 enum AnnotationStyleStrings {
     static func characters(_ language: AppLanguage) -> [String] {
         switch language {
-        case .enUS: return ["Stroke style", "Architect", "Artist", "Cartoonist"]
-        case .ptBR: return ["Estilo do traço", "Arquiteto", "Artista", "Cartunista"]
-        case .tr: return ["Çizgi stili", "Mimar", "Sanatçı", "Karikatürist"]
-        case .ru: return ["Стиль штриха", "Архитектор", "Художник", "Мультипликатор"]
-        case .es: return ["Estilo de trazo", "Arquitecto", "Artista", "Dibujante"]
-        case .de: return ["Zeichenstil", "Architekt", "Künstler", "Cartoonist"]
-        case .fr: return ["Style du trait", "Architecte", "Artiste", "Dessinateur"]
-        case .it: return ["Stile del tratto", "Architetto", "Artista", "Fumettista"]
-        case .ja: return ["線のスタイル", "建築家", "画家", "漫画家"]
-        case .ko: return ["획 스타일", "건축가", "예술가", "만화가"]
-        case .zhHans: return ["笔画风格", "建筑师", "艺术家", "漫画家"]
-        case .zhTW, .zhHK: return ["筆畫風格", "建築師", "藝術家", "漫畫家"]
+        case .enUS: return ["Stroke style", "Clean", "Sketchy", "Wild"]
+        case .ptBR: return ["Estilo do traço", "Limpo", "Esboçado", "Irregular"]
+        case .tr: return ["Çizgi stili", "Düzgün", "Eskiz", "Serbest"]
+        case .ru: return ["Стиль штриха", "Чёткий", "Эскизный", "Размашистый"]
+        case .es: return ["Estilo de trazo", "Limpio", "Boceto", "Libre"]
+        case .de: return ["Zeichenstil", "Sauber", "Skizziert", "Wild"]
+        case .fr: return ["Style du trait", "Net", "Esquissé", "Libre"]
+        case .it: return ["Stile del tratto", "Pulito", "Schizzato", "Libero"]
+        case .ja: return ["線のスタイル", "くっきり", "スケッチ", "大胆"]
+        case .ko: return ["획 스타일", "깔끔하게", "스케치", "거칠게"]
+        case .zhHans: return ["笔画风格", "规整", "草图", "奔放"]
+        case .zhTW, .zhHK: return ["筆畫風格", "規整", "草圖", "奔放"]
         }
     }
 

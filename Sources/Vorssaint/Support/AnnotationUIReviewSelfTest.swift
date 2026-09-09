@@ -70,6 +70,21 @@ enum AnnotationUIReviewSelfTest {
                 context.draw(Text("Rounded / per-edge strokes").foregroundColor(.white), at: CGPoint(x: 550, y: 22))
             }.frame(width: 730, height: 390).background(Color(white: 0.08))),
                dark: true, maximumWidth: 730)
+        render("three-roughness-levels", host: NSHostingController(rootView:
+            Canvas { context, _ in
+                for (index, character) in AnnotationStyle.Character.selectable.enumerated() {
+                    let x = CGFloat(index) * 240 + 20
+                    context.draw(Text(AnnotationStyleStrings.characters(.enUS)[character.rawValue + 1])
+                        .foregroundColor(.white), at: CGPoint(x: x + 100, y: 20))
+                    context.withCGContext { cg in
+                        var shape = AnnotationElement(tool: .rect, rect: CGRect(x: x, y: 45, width: 190, height: 190),
+                            style: AnnotationStyle(color: .green, width: 3, character: character))
+                        shape.roughSeed = 42
+                        AnnotationRenderer.draw(shape, in: cg, scale: 1, shadowsEnabled: false)
+                    }
+                }
+            }.frame(width: 730, height: 260).background(Color(white: 0.08))),
+               dark: true, maximumWidth: 730)
         render("all-rough-shapes", host: NSHostingController(rootView:
             Canvas { context, _ in
                 let shapes: [(String, ScreenshotSupport.Tool, AnnotationStyle.Shape, CGFloat)] = [

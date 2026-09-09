@@ -31,8 +31,8 @@ enum AnnotationRoughness {
                      seed: UInt64, width: CGFloat, scale: CGFloat = 1, closedShape: Bool = false,
                      roughness: CGFloat = shapeRoughness) -> CGPath {
         guard character != .architect else { return canonical }
-        if closedShape && character == .cartoonist {
-            return sketchOutline(canonical, seed: seed, scale: scale, roughness: roughness)
+        if closedShape {
+            return sketchOutline(canonical, seed: seed, scale: scale, roughness: character == .artist ? 2 : roughness)
         }
         let widthScale = 1 + min(0.35, max(0, (sqrt(max(1, width / scale)) - 1) * 0.18))
         let amplitude: CGFloat = (character == .artist ? 3 : 6) * widthScale * scale

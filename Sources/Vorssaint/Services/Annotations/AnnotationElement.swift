@@ -87,9 +87,8 @@ struct AnnotationStyle: Codable, Equatable {
         static let selectable: [Pressure] = [.constant, .simulated]
     }
     enum Character: Int, Codable, CaseIterable {
-        // Preserve the retired artist raw value for existing styles.
         case architect, artist, cartoonist
-        static let selectable: [Character] = [.architect, .cartoonist]
+        static let selectable: [Character] = [.architect, .artist, .cartoonist]
     }
     var color: AnnotationColor
     var width: CGFloat
@@ -301,7 +300,7 @@ enum AnnotationGeometry {
                 path.closeSubpath()
             } else {
                 let radius = element.resolvedStyle.roundness * min(element.rect.width, element.rect.height) / 2
-                if element.resolvedStyle.character == .cartoonist {
+                if element.resolvedStyle.character != .architect {
                     let r = min(radius, min(element.rect.width, element.rect.height) / 2)
                     let b = element.rect
                     path.move(to: CGPoint(x: b.minX + r, y: b.minY))
@@ -357,8 +356,9 @@ enum AnnotationGeometry {
         case .text, .sticker, .counter, .select, .crop: break
         }
         let rough: CGPath
-        if applyRoughness, element.tool == .ellipse, element.resolvedStyle.character == .cartoonist {
-            rough = AnnotationRoughness.ellipse(in: element.rect, seed: element.roughSeed, scale: renderScale)
+        if applyRoughness, element.tool == .ellipse, element.resolvedStyle.character != .architect {
+            rough = AnnotationRoughness.ellipse(in: element.rect, seed: element.roughSeed, scale: renderScale,
+                roughness: element.resolvedStyle.character == .artist ? 2 : AnnotationRoughness.shapeRoughness)
         } else {
             rough = !applyRoughness || element.tool == .redact || element.tool == .highlight || element.tool == .pixelate
             || (element.tool == .freehand && element.resolvedStyle.isHighlighter)

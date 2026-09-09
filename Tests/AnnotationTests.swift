@@ -1334,6 +1334,9 @@ enum AnnotationTests {
                 : AnnotationRoughness.path(AnnotationGeometry.shapeBoundary(shape), character: .cartoonist,
                                           seed: 42, width: 3, closedShape: true, roughness: 2)
             expect(AnnotationGeometry.path(shape) != reference, "user-requested rough preset is stronger than Excalidraw roughness 2")
+            var middle = shape
+            middle.style?.character = .artist
+            expect(AnnotationGeometry.path(middle) == reference, "Sketchy uses the reference strength between Clean and Wild")
             reference.applyWithBlock { pointer in
                 let element = pointer.pointee
                 let count = element.type == .moveToPoint || element.type == .addLineToPoint ? 1
@@ -1455,8 +1458,9 @@ enum AnnotationTests {
                "typed per-tool styles round-trip through isolated preferences")
         expect(AnnotationStylePreferences.load(defaults: defaults, key: DefaultsKey.screenshotAnnotationStyles).isEmpty,
                "live and screenshot defaults remain scoped to their host")
-        expect(AnnotationStyle.Character.selectable == [.architect, .cartoonist],
-               "roughness picker offers only clean and rough")
+        expect(AnnotationStyle.Character.selectable == [.architect, .artist, .cartoonist],
+               "roughness picker offers Clean, Sketchy and Wild")
+        style.character = .artist
         var retired = style
         retired.character = .artist
         retired.pressure = .hardware
@@ -1468,10 +1472,10 @@ enum AnnotationTests {
             for key in [DefaultsKey.screenAnnotationStyles, DefaultsKey.screenshotAnnotationStyles] {
                 defaults.set(String(decoding: data, as: UTF8.self), forKey: key)
                 let migrated = AnnotationStylePreferences.load(defaults: defaults, key: key)["pen"]
-                expect(migrated == style, "retired roughness defaults migrate to clean and preserve other fields")
+                expect(migrated == style, "Sketchy survives preference loading while tablet pressure migrates")
                 AnnotationStylePreferences.save(["pen": retired], defaults: defaults, key: key)
                 expect(AnnotationStylePreferences.load(defaults: defaults, key: key)["pen"] == style,
-                       "saved tool defaults cannot reintroduce the retired option")
+                       "Sketchy survives saving in both hosts")
             }
         } catch {
             expect(false, "roughness migration fixture: \(error)")
