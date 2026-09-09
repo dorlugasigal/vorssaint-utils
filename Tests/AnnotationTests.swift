@@ -27,6 +27,7 @@ enum AnnotationTests {
         testFreehand(expect)
         testInteractionFeedback(expect)
         testRoughness(expect)
+        testRoughJSReference(expect)
         testShapeHandles(expect)
         testSmartDraw(expect)
         testSmartDrawResults(expect)
@@ -1297,6 +1298,38 @@ enum AnnotationTests {
                "rough geometry scales consistently between logical and Retina pixels")
         for language in AppLanguage.allCases {
             expect(AnnotationStyleStrings.characters(language).count == 4, "rough styles localized for \(language)")
+        }
+    }
+
+    private static func testRoughJSReference(_ expect: (Bool, String) -> Void) {
+        // Rough.js 4.6.6, seed 42, roughness 2, strokeWidth 3; coordinates from its actual generator.
+        let cases: [(ScreenshotSupport.Tool, CGFloat, [CGFloat])] = [
+            (.rect, 0, [-2.925748019074395, -2.2245807401354756,
+                       60.893097319157405, 0.4670825656393991, 117.8764567482553, 4.104041981587789,
+                       300.9811831955972, -2.232013326762959]),
+            (.rect, 0.5, [75, 0, 101.03845180757344, -1.5683923456817865,
+                         136.19732319936156, -0.8283246252685785, 225, 0,
+                         75, 0, 107.03913185186684, -1.0679474864155054,
+                         140.94610138982534, -2.7394130025058985, 225, 0,
+                         225, 0, 274.02418538182974, 0.4525663033127785,
+                         297.82802721112967, 21.701508440077305, 300, 75]),
+            (.ellipse, 0, [45.308451810467474, 42.44457993847111,
+                          54.344940270560606, 30.56069492475681, 72.0059102415149, 20.097635798750535,
+                          86.20038577315093, 13.038825635297655])
+        ]
+        for (tool, roundness, expected) in cases {
+            var shape = AnnotationElement(tool: tool, rect: CGRect(x: 0, y: 0, width: 300, height: 300),
+                style: AnnotationStyle(color: .red, width: 3, roundness: roundness, character: .cartoonist))
+            shape.roughSeed = 42
+            var actual: [CGFloat] = []
+            AnnotationGeometry.path(shape).applyWithBlock { pointer in
+                let element = pointer.pointee
+                let count = element.type == .moveToPoint || element.type == .addLineToPoint ? 1
+                    : element.type == .addCurveToPoint ? 3 : element.type == .addQuadCurveToPoint ? 2 : 0
+                for index in 0..<count { actual += [element.points[index].x, element.points[index].y] }
+            }
+            expect(actual.count >= expected.count && zip(actual, expected).allSatisfy { abs($0 - $1) < 0.000001 },
+                   "native \(tool) roundness \(roundness) matches Rough.js reference control points")
         }
     }
 

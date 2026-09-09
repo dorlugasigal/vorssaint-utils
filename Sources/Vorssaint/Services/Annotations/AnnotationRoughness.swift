@@ -7,6 +7,13 @@
 import CoreGraphics
 
 enum AnnotationRoughness {
+    private struct SketchGenerator {
+        var state: UInt32
+        mutating func unit() -> CGFloat {
+            state = (state &* 48271) & 0x7fff_ffff
+            return CGFloat(state) / 2147483648
+        }
+    }
     private struct Generator {
         var state: UInt64
         mutating func signedUnit() -> CGFloat {
@@ -75,10 +82,57 @@ enum AnnotationRoughness {
         return result
     }
 
+    static func ellipse(in rect: CGRect, seed: UInt64, scale: CGFloat) -> CGPath {
+        var random = SketchGenerator(state: UInt32(truncatingIfNeeded: seed) & 0x7fff_ffff)
+        if random.state == 0 { random.state = 1 }
+        func offset(_ amount: CGFloat) -> CGFloat { 2 * ((random.unit() * 2 * amount) - amount) }
+        let rx = rect.width / 2, ry = rect.height / 2
+        let estimate = sqrt(CGFloat.pi * 2 * sqrt((pow(rx / scale, 2) + pow(ry / scale, 2)) / 2))
+        let count = ceil(max(9, 9 / sqrt(200) * estimate))
+        let increment = CGFloat.pi * 2 / count
+        // Rough.js consumes the fitting samples even with Excalidraw's curveFitting = 1.
+        _ = offset(0)
+        _ = offset(0)
+        let result = CGMutablePath()
+        for pass in 0..<2 {
+            let amount: CGFloat = pass == 0 ? scale : 1.5 * scale
+            let overlap: CGFloat
+            if pass == 0 {
+                let upper = 2 * (random.unit() * 0.6 + 0.4)
+                overlap = increment * 2 * (random.unit() * (upper - 0.1) + 0.1)
+            } else { overlap = 0 }
+            let phase = offset(0.5) - CGFloat.pi / 2
+            func point(_ angle: CGFloat, factor: CGFloat = 1) -> CGPoint {
+                CGPoint(x: rect.midX + factor * rx * cos(angle) + offset(amount),
+                        y: rect.midY + factor * ry * sin(angle) + offset(amount))
+            }
+            var points = [point(phase - increment, factor: 0.9)]
+            var angle = phase
+            while angle < CGFloat.pi * 2 + phase - 0.01 {
+                points.append(point(angle))
+                angle += increment
+            }
+            points.append(point(phase + CGFloat.pi * 2 + overlap * 0.5))
+            points.append(point(phase + overlap, factor: 0.98))
+            points.append(point(phase + overlap * 0.5, factor: 0.9))
+            result.move(to: points[1])
+            for index in 1..<(points.count - 2) {
+                let a = points[index], b = points[index + 1]
+                let c1 = CGPoint(x: a.x + (b.x - points[index - 1].x) / 6,
+                                 y: a.y + (b.y - points[index - 1].y) / 6)
+                let c2 = CGPoint(x: b.x + (a.x - points[index + 2].x) / 6,
+                                 y: b.y + (a.y - points[index + 2].y) / 6)
+                result.addCurve(to: b, control1: c1, control2: c2)
+            }
+        }
+        return result
+    }
+
     /// Each edge has its own two strokes. Fill/selection use the separate canonical boundary.
     private static func sketchOutline(_ canonical: CGPath, seed: UInt64, scale: CGFloat) -> CGPath {
         let result = CGMutablePath()
-        var random = Generator(state: seed)
+        var random = SketchGenerator(state: UInt32(truncatingIfNeeded: seed) & 0x7fff_ffff)
+        if random.state == 0 { random.state = 1 }
         var preserveVertices = false
         canonical.applyWithBlock {
             if $0.pointee.type == .addCurveToPoint || $0.pointee.type == .addQuadCurveToPoint {
@@ -86,7 +140,7 @@ enum AnnotationRoughness {
             }
         }
         func offset(_ amount: CGFloat, gain: CGFloat = 1) -> CGFloat {
-            random.signedUnit() * amount * 2 * gain
+            2 * gain * ((random.unit() * (2 * amount)) - amount)
         }
         func line(from a: CGPoint, to b: CGPoint) {
             let dx = b.x - a.x, dy = b.y - a.y
@@ -97,7 +151,7 @@ enum AnnotationRoughness {
             let maximum = min(2 * scale, length / 10)
             for pass in 0..<2 {
                 let jitter = pass == 0 ? maximum : maximum / 2
-                let diverge = 0.2 + (random.signedUnit() + 1) * 0.1
+                let diverge = 0.2 + random.unit() * 0.2
                 let bowX = offset(dy / 100, gain: gain)
                 let bowY = offset(-dx / 100, gain: gain)
                 let start = preserveVertices ? a : CGPoint(x: a.x + offset(jitter, gain: gain), y: a.y + offset(jitter, gain: gain))

@@ -70,6 +70,27 @@ enum AnnotationUIReviewSelfTest {
                 context.draw(Text("Rounded / per-edge strokes").foregroundColor(.white), at: CGPoint(x: 550, y: 22))
             }.frame(width: 730, height: 390).background(Color(white: 0.08))),
                dark: true, maximumWidth: 730)
+        render("all-rough-shapes", host: NSHostingController(rootView:
+            Canvas { context, _ in
+                let shapes: [(String, ScreenshotSupport.Tool, AnnotationStyle.Shape, CGFloat)] = [
+                    ("Square", .rect, .standard, 0), ("Rounded", .rect, .standard, 0.5),
+                    ("Ellipse", .ellipse, .standard, 0), ("Diamond", .rect, .diamond, 0),
+                    ("Database", .rect, .database, 0), ("Queue", .rect, .queue, 0),
+                    ("Person", .rect, .person, 0), ("Grid", .rect, .grid, 0)
+                ]
+                for (index, item) in shapes.enumerated() {
+                    let x = CGFloat(index % 4) * 230 + 20, y = CGFloat(index / 4) * 250 + 40
+                    context.draw(Text(item.0).foregroundColor(.white), at: CGPoint(x: x + 95, y: y - 20))
+                    context.withCGContext { cg in
+                        var shape = AnnotationElement(tool: item.1, rect: CGRect(x: x, y: y, width: 190, height: 190),
+                            style: AnnotationStyle(color: .green, width: 3, shape: item.2,
+                                                   roundness: item.3, character: .cartoonist))
+                        shape.roughSeed = 42
+                        AnnotationRenderer.draw(shape, in: cg, scale: 1, shadowsEnabled: false)
+                    }
+                }
+            }.frame(width: 920, height: 500).background(Color(white: 0.08))),
+               dark: true, maximumWidth: 920)
         render("selected-shape-handles", host: NSHostingController(rootView:
             Canvas { context, _ in
                 context.withCGContext { cg in

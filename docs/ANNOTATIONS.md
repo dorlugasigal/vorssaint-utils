@@ -78,6 +78,10 @@ Rough shape outlines use independent paired strokes for each edge, following
 Rough.js's line/cubic construction rather than two offset closed rectangles.
 Fills, interior hit testing and connector anchors use a separate canonical
 boundary. Open connectors keep their endpoints pinned.
+The shape renderer uses the Rough.js seeded random sequence, quadratic rounded
+corners, and sampled ellipse curves; fixed-seed reference coordinates cover
+sharp and rounded rectangles and ellipses. Different shape seeds produce
+different natural stroke overlaps.
 The retired middle Artist preset remains decodable for existing styles;
 saved creation defaults migrate to Architect. Redact is available in the
 live toolbar's custom-shape menu and remains a separate screenshot tool.

@@ -301,7 +301,22 @@ enum AnnotationGeometry {
                 path.closeSubpath()
             } else {
                 let radius = element.resolvedStyle.roundness * min(element.rect.width, element.rect.height) / 2
-                path.addRoundedRect(in: element.rect, cornerWidth: radius, cornerHeight: radius)
+                if element.resolvedStyle.character == .cartoonist {
+                    let r = min(radius, min(element.rect.width, element.rect.height) / 2)
+                    let b = element.rect
+                    path.move(to: CGPoint(x: b.minX + r, y: b.minY))
+                    path.addLine(to: CGPoint(x: b.maxX - r, y: b.minY))
+                    if r > 0 { path.addQuadCurve(to: CGPoint(x: b.maxX, y: b.minY + r), control: CGPoint(x: b.maxX, y: b.minY)) }
+                    path.addLine(to: CGPoint(x: b.maxX, y: b.maxY - r))
+                    if r > 0 { path.addQuadCurve(to: CGPoint(x: b.maxX - r, y: b.maxY), control: CGPoint(x: b.maxX, y: b.maxY)) }
+                    path.addLine(to: CGPoint(x: b.minX + r, y: b.maxY))
+                    if r > 0 { path.addQuadCurve(to: CGPoint(x: b.minX, y: b.maxY - r), control: CGPoint(x: b.minX, y: b.maxY)) }
+                    path.addLine(to: CGPoint(x: b.minX, y: b.minY + r))
+                    if r > 0 { path.addQuadCurve(to: CGPoint(x: b.minX + r, y: b.minY), control: CGPoint(x: b.minX, y: b.minY)) }
+                    path.closeSubpath()
+                } else {
+                    path.addRoundedRect(in: element.rect, cornerWidth: radius, cornerHeight: radius)
+                }
             }
         case .redact, .highlight, .pixelate:
             path.addRect(element.rect)
@@ -341,11 +356,16 @@ enum AnnotationGeometry {
             if let last = element.points.last { path.addLine(to: last) }
         case .text, .sticker, .counter, .select, .crop: break
         }
-        let rough = !applyRoughness || element.tool == .redact || element.tool == .highlight || element.tool == .pixelate
+        let rough: CGPath
+        if applyRoughness, element.tool == .ellipse, element.resolvedStyle.character == .cartoonist {
+            rough = AnnotationRoughness.ellipse(in: element.rect, seed: element.roughSeed, scale: renderScale)
+        } else {
+            rough = !applyRoughness || element.tool == .redact || element.tool == .highlight || element.tool == .pixelate
             || (element.tool == .freehand && element.resolvedStyle.isHighlighter)
             ? path : AnnotationRoughness.path(path, character: element.resolvedStyle.character,
                                              seed: element.roughSeed, width: element.resolvedStyle.width, scale: renderScale,
                                              closedShape: element.tool == .rect || element.tool == .ellipse)
+        }
         var transform = transform(element)
         return rough.copy(using: &transform) ?? rough
     }
