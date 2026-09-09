@@ -21,27 +21,34 @@ input without discarding completed live annotations.
 
 | Key | Live tool/action |
 | --- | --- |
-| V / P / H | Select / Pen / freehand Highlighter |
-| A / L | Arrow / Line |
-| R / O / T | Rectangle / Ellipse / Text |
-| X / E | Solid redact / Eraser |
+| Control-2 | Open Draw; close from Draw; resume Draw from Interact |
+| 1 / V | Select |
+| 2 / 3 / 4 | Rectangle / Diamond / Ellipse |
+| 5 / A, 6 / L | Arrow / Line |
+| 7 / F, 8 / T | Pen / Text |
+| 9 / H, 0 / Shift-E | Freehand Highlighter / Eraser |
+| D / Q / U / G / X | Database / Queue / Person / Grid / Axes |
+| Control-W / Control-K | Toggle white / black board |
 | Command-Z / Command-Shift-Z | Undo / Redo |
 | Shift-click | Add or remove objects from selection |
 | Return | Finish a multi-click path |
 | Command-Return | Commit native multiline text |
 | Escape | Cancel editing, then return to Interact |
 
-Drag empty canvas with Select to select enclosed objects. Selected objects
-remain editable while their creation tool stays active. In particular, a
-completed arrow is selected immediately; dragging its vertices or curve
-controls edits that arrow rather than creating another one.
+Drag empty canvas with Select to select enclosed objects. Completing a rectangle,
+diamond, ellipse, custom diagram shape, arrow or line switches to Select and
+selects the new object immediately. Pen, highlighter and screenshot-specific
+capture tools remain active for repeated use. Choose a drawing tool again to
+create another shape.
 
-The toolbar moves within its owning display. The inspector edits selected,
+Move the toolbar using its dedicated drag handle. The rest of the toolbar,
+including the full-width More options button, does not drag the window.
+Expansion stays within the owning display. More options stays open across
+tool changes until explicitly collapsed. The inspector edits selected,
 unlocked objects, or the current tool's defaults when nothing is selected.
-Native color wells share AppKit's color panel. It is placed above its owner
-on the same display, and its level, frame, mode, alpha setting, continuous
-setting, color and parent are restored when the annotation picker closes.
-Switching stroke/fill channels in one owner is one undo transaction.
+Stroke and fill swatches open native popovers with a color grid, shades,
+RGB/RGBA hex input, opacity and an eyedropper. Each picker session is one undo
+transaction. The shared system color panel is not modified.
 
 The square background button cycles transparent, white and black. Transparent
 is the default for each new session.
@@ -51,21 +58,22 @@ is the default for each new session.
 The inspector exposes diamond as a Rectangle variant, solid/hatch/crosshatch
 fills, dashes, rounded corners, custom RGBA, opacity, widths, font families,
 font size, bold text, alignment, pressure, smoothing and stroke character.
-Architect preserves clean geometry; Artist and Cartoonist use deterministic
-seeded geometry. Redact is always opaque, including when a mixed selection
-receives a translucent color.
+The stroke-character picker offers Architect (clean) and Cartoonist (rough).
+The retired middle Artist preset remains decodable for existing styles;
+saved creation defaults migrate to Architect. Redact is available in the
+live toolbar's custom-shape menu and remains a separate screenshot tool.
+It is always opaque, including when a mixed selection receives a translucent color.
 
-Select straight or curved linear routing, then optionally enable multi-click
-construction. Multi-click configures the next path even when an existing
-object is selected; it does not modify that object's style. Click vertices
-and finish with Return or Done; Escape/Cancel
-discards the construction. The point buttons insert or remove an interior
-vertex and are enabled only when the selection has editable vertices.
-Selected vertices and cubic controls can be dragged. Arrow remains
+The arrow-options popover groups start/end heads with straight and curved
+routes. Click to start a path, click to add vertices, and finish with Return,
+Done, double-click or the last-point finish handle. Drag/release creates a
+quick path. Escape/Cancel discards construction. Drag midpoint handles to
+insert vertices; double-click an interior vertex to remove it.
+Selected vertices and cubic controls can be dragged. An arrow element remains
 Arrow when both heads are None. Both ends support the full arrowhead catalog,
 including outlined/filled forms and relationship cardinality markers.
 
-Endpoint bindings are opt-in to preserve existing screenshot placement.
+Nearby endpoint binding is enabled by default for new connectors.
 Endpoints near a shape attach to its stable identity and follow translations,
 resizes and rotations. Deleting a target detaches its connectors without
 jumping their last visible endpoints. Duplicating a target and its connectors
@@ -81,6 +89,11 @@ Text uses the same native `NSTextView` bridge in both hosts. Return inserts a
 newline; Command-Return commits. Escape cancels. Whitespace is retained, and
 focus moving to an inspector does not commit the text. Text and style changes
 during an edit share one undo transaction.
+Double-click empty canvas to start text at the pointer, or double-click a shape
+to start centered text. Double-clicking a shape with text at its center reopens
+that text. Text is a separate editable element, not a bound child of the shape.
+Locked objects and active path-finishing/vertex-editing gestures keep their
+existing behavior; Interact does not intercept desktop double-clicks.
 
 Freehand strokes are not capped at 600 points. Input filtering preserves the
 final endpoint and bounds pressure resampling work per event. Geometry caches
@@ -130,12 +143,12 @@ and uses isolated preference suites without opening application windows.
 | Display/session/input ownership | `Services/ScreenAnnotation/ScreenAnnotationService.swift` | Display geometry checks in `Tests/MetricsTests.swift`; live data-host selftest |
 | Shared model, rendering and export | `Services/Annotations/AnnotationElement.swift`, `AnnotationRenderer.swift`; `Services/QuickTools/ScreenshotRenderer.swift` | Default screenshot pixel equivalence at 1x/2x in `Tests/AnnotationTests.swift`; host export selftest |
 | Transactions, selection and direct arrow editing | `Services/Annotations/AnnotationDocument.swift`; both host services | `testEditing`; live and screenshot data-host selftests |
-| Inspector, colors and scoped preferences | `UI/Annotations/AnnotationInspector.swift`; `Services/Annotations/AnnotationStylePreferences.swift`, `AnnotationPanelPlacement.swift` | `testPreferencesAndChannels`; placement and finite-value tests |
+| Inspector, colors and scoped preferences | `UI/Annotations/AnnotationInspector.swift`, `AnnotationColorControl.swift`; `Services/Annotations/AnnotationStylePreferences.swift`, `AnnotationColorPalette.swift` | `testPreferencesAndChannels`, `testColorPalette`; placement and finite-value tests |
 | Groups, locks, layers and transforms | `Services/Annotations/AnnotationSelection.swift`; `UI/Annotations/AnnotationSelectionMenu.swift`, `AnnotationTransformControls.swift` | `testSelection`; locked-object host selftests |
 | Shapes, fills, dashes and roundness | Shared geometry/renderer and inspector | `testShapeStyles`; default-renderer pixel regressions |
 | Curves, points, heads and construction | `Services/Annotations/AnnotationLinear.swift` | `testLinear`; screenshot control-editing and construction selftests |
 | Endpoint bindings | `Services/Annotations/AnnotationBindings.swift` | `testBindings` |
-| Native text and typography | `UI/Annotations/AnnotationTextEditor.swift`; shared renderer | `testText`; whitespace/undo host selftests |
+| Native text and typography | `UI/Annotations/AnnotationTextEditor.swift`; `Services/Annotations/AnnotationTextPlacement.swift`; shared renderer | `testText`, `testTextPlacement`; centered text/whitespace/undo host selftests |
 | Pressure, smoothing and eraser sweeps | `Services/Annotations/AnnotationFreehand.swift`, `AnnotationPathSampling.swift` | `testFreehand`; long-marker and eraser host selftests |
 | Deterministic rough geometry | `Services/Annotations/AnnotationRoughness.swift` | `testRoughness`, including scale and seed checks |
 | Smart Draw | `Services/Annotations/SmartDrawRecognizer.swift`, `AnnotationSmartDraw.swift` | `testSmartDraw`, including every shape kind and stale-token policy |
@@ -150,8 +163,8 @@ that unchanged scene paths are not rebuilt.
 ### Native acceptance still requiring desktop interaction
 
 Automated geometry and data-host checks are not proof of native focus, IME or
-physical display behavior. The implementation work did not launch or install
-the application UI. Before claiming full interactive parity, exercise:
+physical display behavior. Isolated previews have been exercised, but the full
+manual matrix remains outstanding. Before claiming full interactive parity, exercise:
 
 1. Draw/Interact/Close and toolbar reentry on displays to the left, right,
    above and below the primary display, including mixed scales and negative

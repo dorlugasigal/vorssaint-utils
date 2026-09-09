@@ -9,6 +9,7 @@ enum AnnotationTests {
         testColorPalette(expect)
         testPathSampling(expect)
         testToolbarExpansion(expect)
+        testTextPlacement(expect)
         testToolShortcuts(expect)
         testDiagramShapes(expect)
         testCurveControlPreservation(expect)
@@ -93,6 +94,36 @@ enum AnnotationTests {
             let normalized = ScreenAnnotationSupport.normalized(
                 point: AnnotationPoint(x: 50 * scale, y: 70 * scale), in: (200 * scale, 200 * scale))
             expect(normalized == AnnotationPoint(x: 0.25, y: 0.35), "coordinate adapter is scale independent")
+        }
+    }
+
+    private static func testTextPlacement(_ expect: (Bool, String) -> Void) {
+        let bounds = CGRect(x: 0, y: 0, width: 320, height: 240)
+        let shape = AnnotationElement(tool: .rect, rect: CGRect(x: 40, y: 40, width: 120, height: 80))
+        expect(AnnotationTextPlacement.target(at: CGPoint(x: 42, y: 80), elements: [shape], scale: 1,
+            imageSize: bounds.size) == .create(CGPoint(x: 100, y: 80), centered: true), "double click centers text on shape")
+        expect(AnnotationTextPlacement.target(at: CGPoint(x: 280, y: 200), elements: [shape], scale: 1,
+            imageSize: bounds.size) == .create(CGPoint(x: 280, y: 200), centered: false), "empty double click uses pointer")
+        var locked = shape
+        locked.isLocked = true
+        expect(AnnotationTextPlacement.target(at: CGPoint(x: 100, y: 80), elements: [locked], scale: 1,
+            imageSize: bounds.size) == .locked, "double click respects locked shapes")
+        var style = AnnotationStyle(color: .blue, width: 4)
+        style.textAlignment = .center
+        var text = AnnotationElement(tool: .text, rect: CGRect(x: 100, y: 80, width: 0, height: 0), style: style)
+        for value in ["", "Label", "A longer\nmultiline label"] {
+            text.text = value
+            text.rect = AnnotationRenderer.textBounds(text, scale: 1)
+            expect(text.rect.midX == 100 && text.rect.midY == 80, "centered text preserves anchor as text grows")
+        }
+        let frame = AnnotationTextPlacement.editorFrame(for: text, preferredSize: CGSize(width: 400, height: 200),
+                                                        bounds: bounds)
+        expect(frame.midX == 100 && frame.midY == 80 && bounds.contains(frame), "native editor stays centered near edges")
+        expect(AnnotationTextPlacement.target(at: CGPoint(x: 42, y: 80), elements: [shape, text], scale: 1,
+            imageSize: bounds.size) == .text(text.id), "double click on shape reopens its center label")
+        for tool in ScreenshotSupport.Tool.allCases {
+            expect(AnnotationElement(tool: tool).selectsAfterCreation == [.rect, .ellipse, .arrow, .line].contains(tool),
+                   "auto-select affects geometric drawing tools only: \(tool)")
         }
     }
 
@@ -1133,6 +1164,25 @@ enum AnnotationTests {
                "typed per-tool styles round-trip through isolated preferences")
         expect(AnnotationStylePreferences.load(defaults: defaults, key: DefaultsKey.screenshotAnnotationStyles).isEmpty,
                "live and screenshot defaults remain scoped to their host")
+        expect(AnnotationStyle.Character.selectable == [.architect, .cartoonist],
+               "roughness picker offers only clean and rough")
+        var retired = style
+        retired.character = .artist
+        do {
+            let data = try JSONEncoder().encode(["pen": retired])
+            let original = try JSONDecoder().decode([String: AnnotationStyle].self, from: data)
+            expect(original["pen"]?.character == .artist, "legacy roughness remains decodable without restyling elements")
+            for key in [DefaultsKey.screenAnnotationStyles, DefaultsKey.screenshotAnnotationStyles] {
+                defaults.set(String(decoding: data, as: UTF8.self), forKey: key)
+                let migrated = AnnotationStylePreferences.load(defaults: defaults, key: key)["pen"]
+                expect(migrated == style, "retired roughness defaults migrate to clean and preserve other fields")
+                AnnotationStylePreferences.save(["pen": retired], defaults: defaults, key: key)
+                expect(AnnotationStylePreferences.load(defaults: defaults, key: key)["pen"] == style,
+                       "saved tool defaults cannot reintroduce the retired option")
+            }
+        } catch {
+            expect(false, "roughness migration fixture: \(error)")
+        }
         let primary = AnnotationStyle(color: .red, width: 2)
         var other = AnnotationStyle(color: .blue, width: 9)
         other.fill = .hatch

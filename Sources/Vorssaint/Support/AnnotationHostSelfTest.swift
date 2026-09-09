@@ -16,6 +16,42 @@ enum AnnotationHostSelfTest {
               let image = context.makeImage() else { return ["annotation host: fixture creation"] }
         defer { defaults.removePersistentDomain(forName: suite) }
         failures.append(contentsOf: ScreenAnnotationService.runDataSelfTest(defaults: defaults))
+        for tool in [ScreenshotSupport.Tool.rect, .ellipse, .arrow, .line] {
+            let shapes = ScreenshotEditorModel(image: image, scale: 1, defaults: defaults)
+            shapes.tool = tool
+            shapes.beginDrag(at: CGPoint(x: 40, y: 40))
+            shapes.endDrag(at: CGPoint(x: 160, y: 120), isTap: false)
+            expect(shapes.tool == .select && shapes.selectedID == shapes.annotations.first?.id,
+                   "\(tool) creation switches to Select and retains the element")
+            shapes.undo()
+            expect(shapes.annotations.isEmpty, "\(tool) creation undo remains atomic")
+        }
+        for tool in [ScreenshotSupport.Tool.select, .rect, .ellipse, .freehand] {
+            let text = ScreenshotEditorModel(image: image, scale: 1, defaults: defaults)
+            text.tool = tool
+            text.beginDrag(at: CGPoint(x: 200, y: 150))
+            text.endDrag(at: CGPoint(x: 200, y: 150), isTap: true, clickCount: 2)
+            expect(text.editingTextID != nil && text.annotations.count == 1 && text.annotations[0].tool == .text,
+                   "double click enters text from \(tool) without a leftover draft")
+            if let id = text.editingTextID { text.commitText(id, text: "Note") }
+            text.undo()
+            expect(text.annotations.isEmpty, "double-click text creation is one undo step")
+        }
+        let labels = ScreenshotEditorModel(image: image, scale: 1, defaults: defaults)
+        labels.tool = .rect
+        labels.beginDrag(at: CGPoint(x: 40, y: 40))
+        labels.endDrag(at: CGPoint(x: 160, y: 120), isTap: false)
+        let shape = labels.annotations
+        labels.beginDrag(at: CGPoint(x: 42, y: 80))
+        labels.endDrag(at: CGPoint(x: 42, y: 80), isTap: true, clickCount: 2)
+        expect(labels.editingTextID != nil && labels.annotations.count == 2, "shape double click starts a label")
+        if let id = labels.editingTextID {
+            labels.commitText(id, text: "Centered\nlabel")
+            expect(labels.annotations.last?.rect.midX == 100 && labels.annotations.last?.rect.midY == 80,
+                   "shape label remains centered after commit")
+        }
+        labels.undo()
+        expect(labels.annotations == shape, "label undo preserves its shape")
         for tool in [ScreenshotSupport.Tool.select, .text] {
             let clicks = ScreenshotEditorModel(image: image, scale: 1, defaults: defaults)
             clicks.tool = .text
@@ -39,7 +75,7 @@ enum AnnotationHostSelfTest {
         model.beginDrag(at: CGPoint(x: 30, y: 40))
         model.endDrag(at: CGPoint(x: 170, y: 120), isTap: false)
         guard let arrow = model.annotations.first else { return ["annotation host: arrow creation"] }
-        expect(model.selectedID == arrow.id && model.tool == .arrow, "arrow selected without switching creation tool")
+        expect(model.selectedID == arrow.id && model.tool == .select, "arrow completion switches to Select")
         model.beginDrag(at: CGPoint(x: 170, y: 120))
         model.endDrag(at: CGPoint(x: 210, y: 150), isTap: false)
         expect(model.annotations.count == 1 && model.annotations[0].points.last == CGPoint(x: 210, y: 150),

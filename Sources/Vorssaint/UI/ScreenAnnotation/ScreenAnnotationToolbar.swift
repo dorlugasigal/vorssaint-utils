@@ -14,6 +14,7 @@ private struct AnnotationToolbarView: View {
     @ObservedObject var service: ScreenAnnotationService
     @ObservedObject private var localization = L10n.shared
     @State private var transformsPresented = false
+    @State private var inspectorExpanded = false
 
     private var presetColors: [AnnotationColor] {
         service.inspectorStyle.isHighlighter ? AnnotationBrush.neonColors
@@ -76,6 +77,7 @@ private struct AnnotationToolbarView: View {
                     .help(strings.clear)
             }
             AnnotationInspector(style: Binding(get: { service.inspectorStyle }, set: service.setInspectorStyle),
+                                expanded: $inspectorExpanded,
                                 editingChanged: service.styleEditingChanged, tool: service.inspectorTool,
                                 editPoints: service.editLinearPoints, smartDraw: $service.smartDrawEnabled,
                                 showsStrokeColor: false, layoutChanged: service.scheduleToolbarLayout)

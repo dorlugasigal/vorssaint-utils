@@ -27,6 +27,10 @@ struct AnnotationElement: Identifiable, Equatable {
     private(set) var appendBaseRevision = UUID()
     var roughSeed: UInt64 = 0 { didSet { geometryRevision = UUID() } }
 
+    var selectsAfterCreation: Bool {
+        tool == .rect || tool == .ellipse || tool == .arrow || tool == .line
+    }
+
     mutating func appendFreehand(_ samples: [AnnotationInputSample]) {
         guard !samples.isEmpty else { return }
         let base = appendBaseRevision
@@ -76,7 +80,11 @@ struct AnnotationStyle: Codable, Equatable {
     enum FontFamily: Int, Codable, CaseIterable { case system, serif, monospace, handwriting }
     enum Alignment: Int, Codable, CaseIterable { case left, center, right }
     enum Pressure: Int, Codable, CaseIterable { case constant, hardware, simulated }
-    enum Character: Int, Codable, CaseIterable { case architect, artist, cartoonist }
+    enum Character: Int, Codable, CaseIterable {
+        // Preserve the retired artist raw value for existing styles.
+        case architect, artist, cartoonist
+        static let selectable: [Character] = [.architect, .cartoonist]
+    }
     var color: AnnotationColor
     var width: CGFloat
     var opacity: CGFloat = 1

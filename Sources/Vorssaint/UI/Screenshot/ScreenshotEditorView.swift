@@ -19,6 +19,7 @@ struct ScreenshotEditorView: View {
     @State private var backdropPopoverShown = false
     @State private var hoveredTool: ScreenshotSupport.Tool?
     @State private var toolOptionsShown = false
+    @State private var inspectorExpanded = false
     @State private var sharing = false
     @State private var sharedRecord: ScreenshotShareRecord?
     @AppStorage(DefaultsKey.screenshotToolOrder) private var toolOrderRaw =
@@ -47,6 +48,7 @@ struct ScreenshotEditorView: View {
                     && model.inspectorTool != .sticker && model.inspectorTool != .counter
                     && model.inspectorTool != .select {
                     AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
+                                        expanded: $inspectorExpanded,
                                         editingChanged: model.styleEditingChanged, tool: model.inspectorTool,
                                         editPoints: model.editLinearPoints, smartDraw: $model.smartDrawEnabled,
                                         allowsHighlighter: true)
@@ -603,12 +605,17 @@ struct ScreenshotEditorView: View {
         if let editingID = model.editingTextID,
            let annotation = model.annotations.first(where: { $0.id == editingID }) {
             let pad = model.backdropPaddingPixels
+            let preferred = CGSize(width: max(240, min(600, annotation.rect.width * zoom + 30)) / zoom,
+                                   height: max(100, min(300, annotation.rect.height * zoom + 40)) / zoom)
+            let editorFrame = annotation.resolvedStyle.textAlignment == .center
+                ? AnnotationTextPlacement.editorFrame(for: annotation, preferredSize: preferred,
+                    bounds: CGRect(origin: .zero, size: model.imageSize))
+                : CGRect(origin: annotation.rect.origin, size: preferred)
             AnnotationTextEditor(text: $editingText, element: annotation, scale: model.scale * zoom,
                                  commit: { model.commitText(editingID, text: $0) },
                                  cancel: model.cancelTextEditing)
                 .id(editingID)
-                .frame(width: max(240, min(600, annotation.rect.width * zoom + 30)),
-                       height: max(100, min(300, annotation.rect.height * zoom + 40)))
+                .frame(width: editorFrame.width * zoom, height: editorFrame.height * zoom)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(.black.opacity(0.35),
@@ -617,8 +624,8 @@ struct ScreenshotEditorView: View {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1)
                 )
-                .offset(x: (annotation.rect.minX + pad) * zoom - 6,
-                        y: (annotation.rect.minY + pad) * zoom - 3)
+                .offset(x: (editorFrame.minX + pad) * zoom - 6,
+                        y: (editorFrame.minY + pad) * zoom - 3)
                 .onAppear {
                     editingText = annotation.text
                 }

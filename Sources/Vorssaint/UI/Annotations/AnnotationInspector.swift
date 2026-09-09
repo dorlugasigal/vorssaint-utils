@@ -11,6 +11,7 @@ enum AnnotationColorPanels {
 
 struct AnnotationInspector: View {
     @Binding var style: AnnotationStyle
+    @Binding var expanded: Bool
     var editingChanged: (Bool) -> Void
     var tool: ScreenshotSupport.Tool
     var editPoints: (Bool) -> Void = { _ in }
@@ -18,7 +19,6 @@ struct AnnotationInspector: View {
     var allowsHighlighter = false
     var showsStrokeColor = true
     var layoutChanged: () -> Void = {}
-    @State private var expanded = false
     @ObservedObject private var localization = L10n.shared
 
     private var strings: ScreenshotFeatureStrings { FeatureStrings.screenshot(localization.language) }
@@ -52,7 +52,7 @@ struct AnnotationInspector: View {
                         label: { AnnotationStyleStrings.patternName($0, localization.language) },
                         preview: { .pattern($0) })
                     let characters = AnnotationStyleStrings.characters(localization.language)
-                    AnnotationVisualChoices(values: AnnotationStyle.Character.allCases, selection: $style.character,
+                    AnnotationVisualChoices(values: AnnotationStyle.Character.selectable, selection: $style.character,
                         label: { characters[$0.rawValue + 1] }, preview: { .character($0) })
                 }
             }
@@ -79,7 +79,6 @@ struct AnnotationInspector: View {
             .disclosureGroupStyle(AnnotationDisclosureStyle())
         }
         .onChange(of: expanded) { _, _ in layoutChanged() }
-        .onChange(of: tool) { _, _ in expanded = false }
     }
 
     private var advancedControls: some View {

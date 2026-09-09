@@ -55,6 +55,18 @@ enum SelfTest {
             window.contentViewController = nil
             window.close()
         }
+        var textStyle = AnnotationStyle(color: .blue, width: 4)
+        textStyle.textAlignment = .center
+        let text = AnnotationElement(tool: .text, text: "Centered", style: textStyle)
+        let editor = AnnotationNativeTextEditor(element: text, scale: 1)
+        editor.frame = CGRect(x: 0, y: 0, width: 300, height: 160)
+        editor.layoutSubtreeIfNeeded()
+        guard let textView = editor.documentView as? NSTextView,
+              textView.alignment == .center, textView.textContainerInset.height > 0,
+              abs((textView.textContainer?.containerSize.width ?? 0) + 4 - editor.contentSize.width) < 1 else {
+            print("ANNOTATION UI FAILED: centered native text container")
+            exit(1)
+        }
         print("ANNOTATION UI OK")
         exit(0)
     }

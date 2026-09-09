@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Vorssaint
+
+import Foundation
+import CoreGraphics
+
+enum AnnotationTextPlacement {
+    enum Target: Equatable {
+        case text(UUID)
+        case create(CGPoint, centered: Bool)
+        case locked
+        case linear
+    }
+
+    static func target(at point: CGPoint, elements: [AnnotationElement], scale: CGFloat,
+                       imageSize: CGSize, excluding: UUID? = nil, selection: Set<UUID> = []) -> Target {
+        if let owner = AnnotationEditGesture.owner(at: point, in: elements, selection: selection,
+                                                   scale: scale, imageSize: imageSize),
+           owner.tool == .arrow || owner.tool == .line,
+           AnnotationEditGesture.handle(for: owner, at: point, tolerance: 12 * scale) != nil {
+            return .linear
+        }
+        guard let hit = elements.last(where: {
+            $0.id != excluding && AnnotationGeometry.hit($0, at: point, scale: scale, imageSize: imageSize)
+        }) else { return .create(point, centered: false) }
+        if hit.isLocked { return .locked }
+        switch hit.tool {
+        case .text: return .text(hit.id)
+        case .rect, .ellipse:
+            let center = CGPoint(x: hit.rect.midX, y: hit.rect.midY).applying(AnnotationGeometry.transform(hit))
+            if let label = elements.last(where: {
+                $0.tool == .text && AnnotationGeometry.hit($0, at: center, scale: scale, imageSize: imageSize)
+            }) { return label.isLocked ? .locked : .text(label.id) }
+            return .create(center, centered: true)
+        case .arrow, .line: return .linear
+        default: return .create(point, centered: false)
+        }
+    }
+
+    static func editorFrame(for element: AnnotationElement, preferredSize: CGSize, bounds: CGRect) -> CGRect {
+        var size = CGSize(width: min(preferredSize.width, bounds.width),
+                          height: min(preferredSize.height, bounds.height))
+        var origin = element.rect.origin
+        if element.resolvedStyle.textAlignment == .center {
+            let center = CGPoint(x: element.rect.midX, y: element.rect.midY)
+            size.width = min(size.width, max(20, 2 * min(center.x - bounds.minX, bounds.maxX - center.x)))
+            size.height = min(size.height, max(20, 2 * min(center.y - bounds.minY, bounds.maxY - center.y)))
+            origin = CGPoint(x: center.x - size.width / 2, y: center.y - size.height / 2)
+        }
+        return AnnotationDisplayGeometry.clampedToolbarFrame(CGRect(origin: origin, size: size), visibleFrame: bounds)
+    }
+}

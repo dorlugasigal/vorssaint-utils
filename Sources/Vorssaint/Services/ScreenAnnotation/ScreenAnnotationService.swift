@@ -512,11 +512,12 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         !selectedIDs.isEmpty && strokes.filter { selectedIDs.contains($0.id) }.allSatisfy(\.isLocked)
     }
     var selectionRotation: Double {
-        strokes.first(where: { selectedIDs.contains($0.id) }).map { AnnotationSelection.rotation(of: $0) * 180 / .pi } ?? 0
+        strokes.first(where: { selectedIDs.contains($0.id) })
+            .map { Double(AnnotationSelection.rotation(of: $0)) * 180 / Double.pi } ?? 0
     }
 
     func rotateSelection(_ degrees: Double) {
-        let delta = (degrees - selectionRotation) * .pi / 180
+        let delta = (degrees - selectionRotation) * Double.pi / 180
         document.edit { AnnotationSelection.transform(&$0, rotation: delta, factor: 1) }
         refreshDocument()
     }
@@ -581,7 +582,9 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     // MARK: - Stroke entry points (called from AnnotationDrawingView)
 
-    fileprivate func beginStroke(at p: NSPoint, bounds: CGRect, extendingSelection: Bool = false) {
+    private var lastTapStroke: AnnotationElement?
+
+    fileprivate func beginStroke(at p: NSPoint, bounds: CGRect, extendingSelection: Bool = false, clickCount: Int = 1) {
         AnnotationColorPanels.closeCurrent()
         drawingView?.commitTextEditorIfNeeded()
         if linearConstruction != nil {
@@ -589,6 +592,25 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             updateLinearPreview()
             return
         }
+        if clickCount == 2, !extendingSelection, tool != .eraser {
+            if let lastTapStroke, strokes.last == lastTapStroke { undo() }
+            lastTapStroke = nil
+            let target = AnnotationTextPlacement.target(at: p, elements: strokes, scale: 1,
+                                                        imageSize: bounds.size, selection: selectedIDs)
+            switch target {
+            case .locked: NSSound.beep(); return
+            case .linear: break
+            case .text(let id):
+                setTool(.text)
+                beginTextEditing(at: p, bounds: bounds, existingTextID: id)
+                return
+            case .create(let point, let centered):
+                setTool(.text)
+                beginTextEditing(at: point, bounds: bounds, centered: centered)
+                return
+            }
+        }
+        lastTapStroke = nil
         cancelGesture()
         dragStart = p
         strokeStartTime = ProcessInfo.processInfo.systemUptime
@@ -675,13 +697,16 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                                isHighlighter: requested == .highlighter)
     }
 
-    fileprivate func beginTextEditing(at point: CGPoint, bounds: CGRect) {
+    fileprivate func beginTextEditing(at point: CGPoint, bounds: CGRect, centered: Bool = false,
+                                     existingTextID: UUID? = nil) {
         drawingView?.commitTextEditorIfNeeded()
-        let existing = hitTest(point, bounds: bounds).flatMap { id in strokes.first { $0.id == id && $0.tool == .text } }
+        let existing = (existingTextID ?? hitTest(point, bounds: bounds))
+            .flatMap { id in strokes.first { $0.id == id && $0.tool == .text } }
         guard existing?.isLocked != true else { return }
         document.begin()
-        var element = existing ?? AnnotationElement(tool: .text, rect: CGRect(origin: point, size: .zero),
-                                                    style: creationStyle)
+        var style = creationStyle(for: .text)
+        if centered { style.textAlignment = .center }
+        var element = existing ?? AnnotationElement(tool: .text, rect: CGRect(origin: point, size: .zero), style: style)
         element.rect = AnnotationRenderer.textBounds(element, scale: 1)
         if existing == nil { strokes.append(element) }
         selectedID = element.id
@@ -788,17 +813,20 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         if let draftID, hypot(point.x - dragStart.x, point.y - dragStart.y) < 1,
            tool != .pen && tool != .highlighter {
             strokes.removeAll { $0.id == draftID }
-        } else if tool == .arrow, let draftID {
-            selectedID = draftID
         }
+        let createdShape = strokes.first { $0.id == draftID && $0.selectsAfterCreation }
+        if let createdShape { selectedID = createdShape.id }
         AnnotationBindings.finishEdit(selectedIDs.union(Set(draftID.map { [$0] } ?? [])), elements: &strokes, tolerance: 14)
         let completedStroke = strokes.first { $0.id == draftID && $0.tool == .freehand }
+        lastTapStroke = completedStroke.flatMap { stroke in
+            stroke.points.allSatisfy { hypot($0.x - dragStart.x, $0.y - dragStart.y) < 1 } ? stroke : nil
+        }
         document.commit()
         draftID = nil
         editGesture = nil
         groupGestures.removeAll()
         marquee = nil
-        refreshDocument()
+        if createdShape != nil { setTool(.select) } else { refreshDocument() }
         if smartDrawEnabled, let completedStroke, !completedStroke.resolvedStyle.isHighlighter {
             smartDraw.finish(completedStroke, duration: ProcessInfo.processInfo.systemUptime - strokeStartTime, scale: 1) { [weak self] converted in
                 guard let self, let index = self.strokes.firstIndex(where: {
@@ -831,7 +859,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         document.commit()
         linearConstruction = nil
         draftID = nil
-        refreshDocument()
+        setTool(.select)
     }
 
     func cancelLinearConstruction() { cancelGesture() }
@@ -868,6 +896,47 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             if !condition { failures.append("annotation live host: \(label)") }
         }
         let bounds = CGRect(x: 0, y: 0, width: 500, height: 400)
+        for choice in AnnotationToolShortcuts.entries.map(\.choice) where
+            choice.tool == .rectangle || choice.tool == .ellipse || choice.tool == .line || choice.tool == .arrow {
+            let shapes = ScreenAnnotationService(defaults: defaults)
+            shapes.setToolChoice(choice)
+            shapes.beginStroke(at: CGPoint(x: 40, y: 40), bounds: bounds)
+            shapes.finishStroke(at: CGPoint(x: 160, y: 120), bounds: bounds)
+            expect(shapes.tool == .select && shapes.selectedID == shapes.strokes.first?.id,
+                   "\(choice) completes in Select")
+            shapes.undo()
+            expect(shapes.strokes.isEmpty, "\(choice) creation undo is atomic")
+            shapes.closeSession()
+        }
+        let labels = ScreenAnnotationService(defaults: defaults)
+        labels.setTool(.rectangle)
+        labels.beginStroke(at: CGPoint(x: 40, y: 40), bounds: bounds)
+        labels.finishStroke(at: CGPoint(x: 160, y: 120), bounds: bounds)
+        let shape = labels.strokes
+        labels.beginStroke(at: CGPoint(x: 42, y: 80), bounds: bounds, clickCount: 2)
+        expect(labels.editingTextID != nil && labels.strokes.count == 2, "live shape double click starts text")
+        labels.commitText("Centered\nlabel")
+        expect(labels.strokes.last?.rect.midX == 100 && labels.strokes.last?.rect.midY == 80,
+               "live shape text remains centered")
+        labels.undo()
+        expect(labels.strokes == shape, "live label undo preserves its shape")
+        labels.closeSession()
+        labels.setTool(.pen)
+        labels.beginStroke(at: CGPoint(x: 200, y: 150), bounds: bounds)
+        labels.finishStroke(at: CGPoint(x: 200, y: 150), bounds: bounds)
+        labels.beginStroke(at: CGPoint(x: 200, y: 150), bounds: bounds, clickCount: 2)
+        expect(labels.editingTextID != nil && labels.strokes.count == 1 && labels.strokes[0].tool == .text,
+               "pen double click replaces the first tap with text, without a stray dot")
+        labels.commitText("Note")
+        labels.undo()
+        expect(labels.strokes.isEmpty, "live double click text is one undo step")
+        labels.closeSession()
+        labels.setTool(.pen)
+        labels.beginStroke(at: CGPoint(x: 200, y: 150), bounds: bounds)
+        labels.continueStroke(at: CGPoint(x: 240, y: 180), bounds: bounds)
+        labels.finishStroke(at: CGPoint(x: 200, y: 150), bounds: bounds)
+        expect(labels.lastTapStroke == nil, "a closed freehand stroke is not mistaken for a double-click dot")
+        labels.closeSession()
         defaults.set("0.2,0.3,0.4", forKey: DefaultsKey.screenAnnotationColor)
         defaults.set(12, forKey: DefaultsKey.screenAnnotationWidth)
         service.loadPreferences()
@@ -878,16 +947,17 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         service.beginStroke(at: CGPoint(x: 20, y: 50), bounds: bounds)
         service.finishStroke(at: CGPoint(x: 150, y: 50), bounds: bounds)
         guard let original = service.strokes.first else { return ["annotation live host: creation"] }
-        expect(service.selectedID == original.id && service.tool == .arrow, "completed arrows are immediately selected")
+        expect(service.selectedID == original.id && service.tool == .select, "completed arrows switch to Select")
         service.isDrawingActive = true
         service.yieldDrawingInput()
         expect(!service.isDrawingActive && service.strokes == [original], "other tools can release overlay input without losing marks")
         service.beginStroke(at: CGPoint(x: 150, y: 50), bounds: bounds)
         service.finishStroke(at: CGPoint(x: 180, y: 70), bounds: bounds)
         expect(service.strokes.count == 1 && service.strokes[0].points.last == CGPoint(x: 180, y: 70),
-               "selected arrow edits while Arrow remains active")
+               "completed arrow endpoints edit directly in Select")
         service.undo()
         expect(service.strokes == [original], "endpoint edit undo is atomic")
+        service.setTool(.arrow)
         service.beginStroke(at: CGPoint(x: 260, y: 200), bounds: bounds)
         service.finishStroke(at: CGPoint(x: 260, y: 200), bounds: bounds)
         expect(service.hasLinearConstruction && service.strokes[0] == original,
@@ -903,8 +973,9 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         expect(service.strokes[0] == original && service.strokes.count == 2,
                "starting another annotation does not mutate the previous arrow")
         expect(service.strokes.last?.resolvedStyle.endHead == AnnotationArrowhead.none
-            && service.selectedID == service.strokes.last?.id && service.tool == .arrow,
-               "headless arrows keep Arrow identity and immediate selection")
+            && service.strokes.last?.tool == .arrow
+            && service.selectedID == service.strokes.last?.id && service.tool == .select,
+               "headless arrows keep their element identity and switch to Select")
         service.undo()
         service.setTool(.eraser)
         service.beginStroke(at: CGPoint(x: 80, y: 0), bounds: bounds)
@@ -962,9 +1033,8 @@ private final class AnnotationDrawingView: NSView {
     func beginTextEditor(_ element: AnnotationElement) {
         cancelTextEditor()
         let editor = AnnotationNativeTextEditor(element: element, scale: 1)
-        editor.frame = CGRect(x: min(element.rect.minX, bounds.maxX - min(400, bounds.width)),
-                              y: min(element.rect.minY, bounds.maxY - min(200, bounds.height)),
-                              width: min(400, bounds.width), height: min(200, bounds.height))
+        editor.frame = AnnotationTextPlacement.editorFrame(for: element,
+            preferredSize: CGSize(width: 400, height: 200), bounds: bounds)
         editor.committed = { [weak service] in service?.commitText($0) }
         editor.cancelled = { [weak service] in service?.cancelGesture() }
         addSubview(editor)
@@ -1126,20 +1196,10 @@ private final class AnnotationDrawingView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let svc = service, svc.isDrawingActive else { return }
-        if event.clickCount == 2, svc.selectedID != nil,
-           svc.inspectorTool == .text {
-            svc.beginTextEditing(at: convert(event.locationInWindow, from: nil), bounds: bounds)
-            return
-        }
-        if svc.tool == .text {
-            isDragging = true
-            let point = convert(event.locationInWindow, from: nil)
-            svc.beginStroke(at: point, bounds: bounds, extendingSelection: event.modifierFlags.contains(.shift))
-            return
-        }
         isDragging = true
         let point = convert(event.locationInWindow, from: nil)
-        svc.beginStroke(at: point, bounds: bounds, extendingSelection: event.modifierFlags.contains(.shift))
+        svc.beginStroke(at: point, bounds: bounds, extendingSelection: event.modifierFlags.contains(.shift),
+                        clickCount: event.clickCount)
         needsDisplay = true
     }
 

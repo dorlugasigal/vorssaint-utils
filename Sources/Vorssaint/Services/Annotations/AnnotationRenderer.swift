@@ -159,8 +159,11 @@ enum AnnotationRenderer {
             with: CGSize(width: 100_000, height: 100_000),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font(annotation, scale: scale)]).size
-        return CGRect(origin: annotation.rect.origin,
-                      size: CGSize(width: ceil(measured.width) + 4, height: ceil(measured.height)))
+        let size = CGSize(width: ceil(measured.width) + 4, height: ceil(measured.height))
+        let origin = annotation.resolvedStyle.textAlignment == .center
+            ? CGPoint(x: annotation.rect.midX - size.width / 2, y: annotation.rect.midY - size.height / 2)
+            : annotation.rect.origin
+        return CGRect(origin: origin, size: size)
     }
 
     private static func drawText(_ annotation: AnnotationElement, in context: CGContext,

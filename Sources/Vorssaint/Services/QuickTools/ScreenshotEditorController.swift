@@ -193,11 +193,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         !selectedIDs.isEmpty && annotations.filter { selectedIDs.contains($0.id) }.allSatisfy(\.isLocked)
     }
     var selectionRotation: Double {
-        annotations.first(where: { selectedIDs.contains($0.id) }).map { AnnotationSelection.rotation(of: $0) * 180 / .pi } ?? 0
+        annotations.first(where: { selectedIDs.contains($0.id) })
+            .map { Double(AnnotationSelection.rotation(of: $0)) * 180 / Double.pi } ?? 0
     }
 
     func rotateSelection(_ degrees: Double) {
-        transformSelection(rotation: (degrees - selectionRotation) * .pi / 180, factor: 1)
+        transformSelection(rotation: (degrees - selectionRotation) * Double.pi / 180, factor: 1)
     }
 
     func resizeSelection(_ factor: Double) { transformSelection(rotation: 0, factor: factor) }
@@ -832,6 +833,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             if finish { finishLinearConstruction(commitPreview: false) }
             return
         }
+        if isTap, clickCount == 2, !additiveSelection, beginDoubleClickText(at: point) { return }
         defer {
             AnnotationBindings.finishEdit(selectedIDs.union(Set(draftID.map { [$0] } ?? [])),
                                           elements: &annotations, tolerance: 14 * scale)
@@ -915,6 +917,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
                 _ = selectExistingAnnotation(at: point)
             } else if let draftID {
                 selectedID = draftID
+                if annotations.first(where: { $0.id == draftID })?.selectsAfterCreation == true {
+                    tool = .select
+                }
             }
         case .select:
             finishSelectDrag(at: point, isTap: isTap)
@@ -930,6 +935,41 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     func selectedAnnotationOwns(_ point: CGPoint) -> Bool {
         AnnotationEditGesture.owner(at: point, in: annotations, selection: selectedIDs,
                                     scale: scale, imageSize: imageSize) != nil
+    }
+
+    private func beginDoubleClickText(at point: CGPoint) -> Bool {
+        guard tool != .crop && tool != .pixelate && tool != .redact && tool != .counter && tool != .sticker else {
+            return false
+        }
+        let target = AnnotationTextPlacement.target(at: point, elements: annotations, scale: scale,
+            imageSize: imageSize, excluding: draftID, selection: selectedIDs)
+        if target == .linear { return false }
+        cancelActiveEdit()
+        gestureCancelled = false
+        switch target {
+        case .locked: NSSound.beep()
+        case .linear: return false
+        case .text(let id):
+            tool = .select
+            history.begin(snapshot)
+            selectedID = id
+            editingTextID = id
+        case .create(let anchor, let centered):
+            tool = .text
+            history.begin(snapshot)
+            var style = creationStyle
+            if centered { style.textAlignment = .center }
+            var annotation = AnnotationElement(tool: .text, rect: CGRect(origin: anchor, size: .zero),
+                                               color: color, stroke: stroke, style: style)
+            annotation.rect = AnnotationRenderer.textBounds(annotation, scale: scale)
+            annotations.append(annotation)
+            selectedID = annotation.id
+            editingTextID = annotation.id
+            newTextID = annotation.id
+        }
+        refreshUndoFlags()
+        refreshDirtyState()
+        return true
     }
 
     private func finishSelectDrag(at point: CGPoint, isTap: Bool) {
@@ -1014,6 +1054,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         linearConstruction = nil
         draftID = nil
         dragRegistered = false
+        tool = .select
         history.commit(snapshot)
         refreshUndoFlags()
         refreshDirtyState()

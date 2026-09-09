@@ -23,6 +23,7 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
     }
 
     private let editor = TextView()
+    private var centersText = false
     var changed: ((String) -> Void)?
     var committed: ((String) -> Void)?
     var cancelled: (() -> Void)?
@@ -36,6 +37,7 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
         drawsBackground = false
         hasVerticalScroller = true
         hasHorizontalScroller = true
+        autohidesScrollers = true
         editor.isRichText = false
         editor.allowsUndo = true
         editor.drawsBackground = false
@@ -66,7 +68,13 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
         editor.textColor = AnnotationRenderer.color(element.resolvedStyle)
         editor.insertionPointColor = editor.textColor ?? .textColor
         editor.alignment = AnnotationRenderer.alignment(element.resolvedStyle.textAlignment)
+        centersText = element.resolvedStyle.textAlignment == .center
         sizeTextContainer()
+    }
+
+    override func layout() {
+        super.layout()
+        if centersText { sizeTextContainer() }
     }
 
     func focus() { window?.makeFirstResponder(editor) }
@@ -81,9 +89,14 @@ final class AnnotationNativeTextEditor: NSScrollView, NSTextViewDelegate {
             with: NSSize(width: 100_000, height: 100_000),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: editor.font ?? NSFont.systemFont(ofSize: 19)]).size
-        let width = max(20, ceil(measured.width) + 8)
-        editor.textContainer?.containerSize = NSSize(width: width, height: 100_000)
-        editor.setFrameSize(NSSize(width: max(100, width), height: max(80, ceil(measured.height) + 20)))
+        let width: CGFloat = max(20, ceil(measured.width) + 8, centersText ? contentSize.width - 4 : 0)
+        let inset = NSSize(width: 2, height: centersText ? max(0, (contentSize.height - ceil(measured.height)) / 2) : 0)
+        if editor.textContainerInset != inset { editor.textContainerInset = inset }
+        let container = NSSize(width: width, height: 100_000)
+        if editor.textContainer?.containerSize != container { editor.textContainer?.containerSize = container }
+        let size = NSSize(width: max(100, centersText ? width + 4 : width),
+                          height: max(80, ceil(measured.height) + 20, centersText ? contentSize.height : 0))
+        if editor.frame.size != size { editor.setFrameSize(size) }
     }
 }
 

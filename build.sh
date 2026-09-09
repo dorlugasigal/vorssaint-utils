@@ -261,6 +261,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/ScreenAnnotation/ScreenAnnotationSupport.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationElement.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationColorPalette.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationTextPlacement.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationLinear.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationBindings.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationFreehand.swift \
