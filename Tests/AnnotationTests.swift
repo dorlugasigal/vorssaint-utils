@@ -899,7 +899,9 @@ enum AnnotationTests {
         expect(AnnotationToolShortcuts.resolve(keyCode: 20, characters: "#", shift: true,
             hasApplicationModifier: false) == .shape(.diamond), "shifted number row keeps ZoomIt mapping")
         expect(AnnotationToolShortcuts.resolve(keyCode: 25, characters: "9", shift: false,
-            hasApplicationModifier: false) == nil, "reserved 9 does not advertise an unavailable tool")
+            hasApplicationModifier: false) == .tool(.highlighter), "9 selects the highlighter")
+        expect(AnnotationToolShortcuts.hint(for: .tool(.highlighter)) == "9",
+               "highlighter displays its numeric shortcut and retains H as an alias")
         expect(AnnotationToolShortcuts.resolve(keyCode: -1, characters: "e", shift: false,
             hasApplicationModifier: false) == nil, "plain E is not mistaken for Shift-E eraser")
         expect(Set(AnnotationToolShortcuts.entries.flatMap(\.keys)).count
