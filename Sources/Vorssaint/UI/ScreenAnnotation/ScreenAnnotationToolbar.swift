@@ -49,6 +49,10 @@ private struct AnnotationToolbarView: View {
                     .frame(width: 90)
                 Button { service.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .help(strings.undo)
+                    .disabled(!service.canUndo)
+                Button { service.redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                    .help(localization.s.menuRedo)
+                    .disabled(!service.canRedo)
                 Divider().frame(height: 20)
                 Button { service.clearAll() } label: { Image(systemName: "trash") }
                     .help(strings.clear)

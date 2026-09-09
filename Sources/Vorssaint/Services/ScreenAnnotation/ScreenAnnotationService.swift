@@ -25,10 +25,23 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - State
 
     @Published private(set) var isDrawingActive = false
-    private(set) var strokes: [AnnotationElement] = []
-    @Published private(set) var selectedID: UUID?
+    private var document = AnnotationDocument()
+    private(set) var strokes: [AnnotationElement] {
+        get { document.state.elements }
+        _modify { yield &document.state.elements }
+    }
+    private(set) var selectedID: UUID? {
+        get { document.selectedIDs.first }
+        set {
+            objectWillChange.send()
+            document.selectedIDs = Set(newValue.map { [$0] } ?? [])
+        }
+    }
+    @Published private(set) var canUndo = false
+    @Published private(set) var canRedo = false
     private var draftID: UUID?
     private var dragStart = CGPoint.zero
+    private var editGesture: AnnotationEditGesture?
     @Published private(set) var shortcutRegistrationFailed = false
 
     // Preferences (kept in sync with UserDefaults)
@@ -69,15 +82,43 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     @objc func clearAll() {
-        strokes.removeAll()
-        selectedID = nil
-        drawingView?.needsDisplay = true
+        cancelGesture()
+        document.edit { $0.elements.removeAll(); $0.selection.removeAll() }
+        refreshDocument()
     }
 
     @objc func undo() {
-        if !strokes.isEmpty { strokes.removeLast() }
-        selectedID = nil
+        cancelGesture()
+        document.undo()
+        refreshDocument()
+    }
+
+    @objc func redo() {
+        cancelGesture()
+        document.redo()
+        refreshDocument()
+    }
+
+    func deleteSelected() {
+        cancelGesture()
+        document.edit { state in
+            state.elements.removeAll { state.selection.contains($0.id) }
+            state.selection.removeAll()
+        }
+        refreshDocument()
+    }
+
+    private func refreshDocument() {
+        canUndo = document.history.canUndo
+        canRedo = document.history.canRedo
         drawingView?.needsDisplay = true
+    }
+
+    fileprivate func cancelGesture() {
+        document.cancel()
+        draftID = nil
+        editGesture = nil
+        refreshDocument()
     }
 
     @objc func hideOverlay() {
@@ -98,7 +139,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         toolbarPanel?.contentViewController = nil
         toolbarPanel = nil
         drawingView = nil
-        strokes.removeAll()
+        document = AnnotationDocument()
+        refreshDocument()
         selectedID = nil
         draftID = nil
         sessionScreen = nil
@@ -232,7 +274,16 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             matching: [.keyDown, .keyUp]) { [weak self] event in
                 guard let self, event.window is AnnotationCanvasPanel else { return event }
                 if event.type == .keyDown {
+                    if event.window?.firstResponder is NSTextView { return event }
+                    if event.modifierFlags.contains(.command),
+                       event.charactersIgnoringModifiers?.lowercased() == "z" {
+                        event.modifierFlags.contains(.shift) ? self.redo() : self.undo()
+                        return nil
+                    }
                     switch Int(event.keyCode) {
+                    case kVK_Delete, kVK_ForwardDelete:
+                        self.deleteSelected()
+                        return nil
                     case kVK_Escape:
                         if self.drawingView?.dismissTextEditor() != true {
                             self.exitDrawingMode()
@@ -265,6 +316,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     func setTool(_ t: AnnotationTool) {
+        cancelGesture()
         tool = t
         UserDefaults.standard.set(t.rawValue, forKey: DefaultsKey.screenAnnotationTool)
     }
@@ -300,8 +352,18 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - Stroke entry points (called from AnnotationDrawingView)
 
     fileprivate func beginStroke(at p: NSPoint, bounds: CGRect) {
-        draftID = nil
+        cancelGesture()
         dragStart = p
+        let selected = strokes.first { $0.id == selectedID }
+        if let selected {
+            let handle = AnnotationEditGesture.handle(for: selected, at: p, tolerance: 12)
+            if tool != .eraser,
+               handle != nil || AnnotationGeometry.hit(selected, at: p, scale: 1, imageSize: bounds.size) {
+                document.begin()
+                editGesture = AnnotationEditGesture(original: selected, anchor: p, handle: handle ?? .move)
+                return
+            }
+        }
         if tool == .text {
             drawingView?.beginTextEditor(at: p)
             return
@@ -309,12 +371,17 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         if tool == .select || tool == .eraser {
             let id = hitTest(p, bounds: bounds)
             selectedID = tool == .select ? id : nil
+            document.begin()
+            if tool == .select, let element = strokes.first(where: { $0.id == id }) {
+                editGesture = AnnotationEditGesture(original: element, anchor: p, handle: .move)
+            }
             if tool == .eraser { strokes.removeAll { $0.id == id } }
             drawingView?.needsDisplay = true
             return
         }
         guard let elementTool = tool.elementTool else { return }
         selectedID = nil
+        document.begin()
         let element = AnnotationElement(tool: elementTool, rect: CGRect(origin: p, size: .zero),
             points: tool.isRectangular ? [] : [p, p], style: creationStyle)
         strokes.append(element)
@@ -332,8 +399,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         var element = AnnotationElement(tool: .text, rect: CGRect(origin: p, size: .zero),
                                         text: text, style: creationStyle)
         element.rect = AnnotationRenderer.textBounds(element, scale: 1)
-        strokes.append(element)
-        drawingView?.needsDisplay = true
+        document.edit { $0.elements.append(element); $0.selection = [element.id] }
+        refreshDocument()
     }
 
     private func hitTest(_ point: CGPoint, bounds: CGRect) -> UUID? {
@@ -341,6 +408,14 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     fileprivate func continueStroke(at p: NSPoint, bounds: CGRect) {
+        if let editGesture, let index = strokes.firstIndex(where: { $0.id == editGesture.original.id }) {
+            strokes[index] = editGesture.updated(to: p)
+            return
+        }
+        if tool == .eraser {
+            if let id = hitTest(p, bounds: bounds) { strokes.removeAll { $0.id == id } }
+            return
+        }
         guard let draftID, let i = strokes.firstIndex(where: { $0.id == draftID }) else { return }
         if strokes[i].tool == .freehand {
             strokes[i].points.append(p)
@@ -353,8 +428,16 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     fileprivate func finishStroke(at point: CGPoint, bounds: CGRect) {
         continueStroke(at: point, bounds: bounds)
-        if tool == .arrow { selectedID = draftID }
+        if let draftID, hypot(point.x - dragStart.x, point.y - dragStart.y) < 1,
+           tool != .pen && tool != .highlighter {
+            strokes.removeAll { $0.id == draftID }
+        } else if tool == .arrow, let draftID {
+            selectedID = draftID
+        }
+        document.commit()
         draftID = nil
+        editGesture = nil
+        refreshDocument()
     }
 
     // MARK: - Carbon shortcut
@@ -448,6 +531,7 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
 
     func cancelInteraction() {
         isDragging = false
+        service?.cancelGesture()
         cancelTextEditor()
     }
 
@@ -491,8 +575,8 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
 
     override func mouseDown(with event: NSEvent) {
         guard let svc = service, svc.isDrawingActive else { return }
-        if svc.tool == .text || svc.tool == .select || svc.tool == .eraser {
-            isDragging = false
+        if svc.tool == .text {
+            isDragging = true
             let point = convert(event.locationInWindow, from: nil)
             svc.beginStroke(at: point, bounds: bounds)
             return

@@ -102,9 +102,15 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     let scale: CGFloat
     private(set) var pixelated: CGImage?
 
-    private var undoStack: [(image: CGImage, annotations: [ScreenshotSupport.Annotation])] = []
-    private var redoStack: [(image: CGImage, annotations: [ScreenshotSupport.Annotation])] = []
-    private static let undoLimit = 60
+    private struct Snapshot: Equatable {
+        let image: CGImage
+        let annotations: [ScreenshotSupport.Annotation]
+        static func == (lhs: Snapshot, rhs: Snapshot) -> Bool {
+            lhs.image === rhs.image && lhs.annotations == rhs.annotations
+        }
+    }
+    private var history = AnnotationHistory<Snapshot>()
+    private var snapshot: Snapshot { Snapshot(image: baseImage, annotations: annotations) }
     private var cleanImage: CGImage?
     private var cleanAnnotations: [ScreenshotSupport.Annotation] = []
     private var cleanBackdropStyle = ScreenshotSupport.BackdropStyle()
@@ -113,8 +119,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     // Gesture state, in image pixels.
     private var dragStart: CGPoint = .zero
     private var draftID: UUID?
-    private var moveOrigin: CGRect = .zero
-    private var movePoints: [CGPoint] = []
+    private var annotationGesture: AnnotationEditGesture?
     private var activeHandle: ScreenshotSupport.Handle?
     private var cropResizeOrigin: CGRect?
     private var cropMoveOrigin: CGRect?
@@ -366,28 +371,22 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     // MARK: - Undo
 
     private func registerUndo() {
-        undoStack.append((baseImage, annotations))
-        if undoStack.count > Self.undoLimit {
-            undoStack.removeFirst()
-        }
-        redoStack.removeAll()
+        history.checkpoint(snapshot)
         refreshUndoFlags()
         isDirty = true
     }
 
     func undo() {
-        guard let last = undoStack.popLast() else { return }
-        redoStack.append((baseImage, annotations))
+        guard let last = history.undo(snapshot) else { return }
         restore(last)
     }
 
     func redo() {
-        guard let next = redoStack.popLast() else { return }
-        undoStack.append((baseImage, annotations))
+        guard let next = history.redo(snapshot) else { return }
         restore(next)
     }
 
-    private func restore(_ state: (image: CGImage, annotations: [ScreenshotSupport.Annotation])) {
+    private func restore(_ state: Snapshot) {
         if state.image !== baseImage {
             baseImage = state.image
             pixelated = nil
@@ -410,8 +409,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     private func refreshUndoFlags() {
-        canUndo = !undoStack.isEmpty
-        canRedo = !redoStack.isEmpty
+        canUndo = history.canUndo
+        canRedo = history.canRedo
     }
 
     func markExported() {
@@ -467,6 +466,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     // MARK: - Gestures (image-pixel coordinates)
 
     func beginDrag(at point: CGPoint) {
+        history.begin(snapshot)
         dragStart = point
         dragRegistered = false
         editingSelectedAnnotation = false
@@ -475,6 +475,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             beginSelectDrag(at: point)
             return
         }
+        if tool != .select && tool != .crop { selectedID = nil }
         switch tool {
         case .select:
             beginSelectDrag(at: point)
@@ -525,24 +526,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         if let selectedID,
            let selected = annotations.first(where: { $0.id == selectedID }) {
             let tolerance = 12 * scale
-            if selected.tool.resizesWithHandles,
-               let handle = ScreenshotSupport.handle(at: point, rect: selected.rect,
-                                                     tolerance: tolerance) {
-                activeHandle = handle
-                moveOrigin = selected.rect
+            if let handle = AnnotationEditGesture.handle(for: selected, at: point, tolerance: tolerance) {
+                annotationGesture = AnnotationEditGesture(original: selected, anchor: point, handle: handle)
                 return
-            }
-            if selected.points.count >= 2 {
-                if hypot(point.x - selected.points[0].x, point.y - selected.points[0].y) < tolerance {
-                    activeHandle = .topLeft
-                    movePoints = selected.points
-                    return
-                }
-                if hypot(point.x - selected.points[1].x, point.y - selected.points[1].y) < tolerance {
-                    activeHandle = .bottomRight
-                    movePoints = selected.points
-                    return
-                }
             }
         }
         selectedID = hitTest(point)
@@ -552,8 +538,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
                 sticker = ScreenshotSupport.StickerID.sanitized(hit.text)
                 self.selectedID = selectedID
             }
-            moveOrigin = hit.rect
-            movePoints = hit.points
+            annotationGesture = AnnotationEditGesture(original: hit, anchor: point, handle: .move)
             clearTextSelection()
         } else if let word = wordIndex(at: point) {
             // A drag over recognized text selects intersecting words.
@@ -611,25 +596,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             registerUndo()
             dragRegistered = true
         }
-        if let handle = activeHandle {
-            if annotations[index].points.count >= 2 {
-                var points = movePoints
-                if handle == .topLeft { points[0] = point } else { points[1] = point }
-                annotations[index].points = points
-            } else {
-                annotations[index].rect = ScreenshotSupport.resizedRect(
-                    moveOrigin, dragging: handle, to: point)
-            }
-            return
-        }
-        let delta = CGPoint(x: point.x - dragStart.x, y: point.y - dragStart.y)
-        if annotations[index].points.isEmpty {
-            annotations[index].rect = moveOrigin.offsetBy(dx: delta.x, dy: delta.y)
-        } else {
-            annotations[index].points = movePoints.map {
-                CGPoint(x: $0.x + delta.x, y: $0.y + delta.y)
-            }
-        }
+        if let annotationGesture { annotations[index] = annotationGesture.updated(to: point) }
     }
 
     /// `isTap` is decided by the view in screen points, so a click stays a
@@ -637,6 +604,10 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     /// on zoomed-out Retina captures read as drags (the text tool bug).
     func endDrag(at point: CGPoint, isTap: Bool) {
         defer {
+            history.commit(snapshot)
+            refreshUndoFlags()
+            refreshDirtyState()
+            annotationGesture = nil
             draftID = nil
             activeHandle = nil
             cropResizeOrigin = nil
@@ -646,6 +617,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             dragRegistered = false
             editingSelectedAnnotation = false
         }
+        if !isTap { continueDrag(to: point) }
         if editingSelectedAnnotation {
             finishSelectDrag(at: point, isTap: isTap)
             return
@@ -694,7 +666,6 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
                 // A tap never leaves a degenerate shape behind; treat it as
                 // picking whatever is under the cursor instead.
                 annotations.removeAll { $0.id == draftID }
-                if !undoStack.isEmpty { undoStack.removeLast() }
                 refreshUndoFlags()
                 refreshDirtyState()
                 _ = selectExistingAnnotation(at: point)
@@ -819,11 +790,11 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         if isNew, trimmed.isEmpty {
             annotations.remove(at: index)
             if selectedID == id { selectedID = nil }
-            while let last = undoStack.last,
+            while let last = history.lastUndo,
                   last.annotations.contains(where: { $0.id == id }) {
-                undoStack.removeLast()
+                history.discardLastCheckpoint()
             }
-            if !undoStack.isEmpty { undoStack.removeLast() }
+            history.discardLastCheckpoint()
             newTextID = nil
             refreshUndoFlags()
             refreshDirtyState()

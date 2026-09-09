@@ -5,6 +5,7 @@ import AppKit
 
 enum AnnotationTests {
     static func run(_ expect: (Bool, String) -> Void) {
+        testEditing(expect)
         let size = CGSize(width: 200, height: 200)
         for scale: CGFloat in [1, 2] {
             for tool: ScreenshotSupport.Tool in [.rect, .ellipse, .arrow, .line, .freehand, .redact, .highlight] {
@@ -61,6 +62,51 @@ enum AnnotationTests {
                 point: AnnotationPoint(x: 50 * scale, y: 70 * scale), in: (200 * scale, 200 * scale))
             expect(normalized == AnnotationPoint(x: 0.25, y: 0.35), "coordinate adapter is scale independent")
         }
+    }
+
+    private static func testEditing(_ expect: (Bool, String) -> Void) {
+        var history = AnnotationHistory<Int>(limit: 2)
+        history.begin(0)
+        history.commit(1)
+        expect(history.undo(1) == 0, "committed gesture has one undo step")
+        history.begin(0)
+        history.commit(0)
+        expect(history.canRedo && !history.canUndo, "no-op gesture preserves redo")
+        history.begin(0)
+        expect(history.cancel() == 0 && history.canRedo, "cancel restores without destroying redo")
+        expect(history.redo(0) == 1, "redo restores committed gesture")
+        for value in 1...3 { history.checkpoint(value) }
+        expect(history.undo(4) == 3 && history.undo(3) == 2 && history.undo(2) == nil,
+               "shared history retains bounded snapshots")
+
+        let arrow = AnnotationElement(tool: .arrow, points: [CGPoint(x: 10, y: 10), CGPoint(x: 100, y: 80)])
+        var document = AnnotationDocument()
+        document.begin()
+        document.elements.append(arrow)
+        document.selectedIDs = [arrow.id]
+        document.commit()
+        expect(document.selectedIDs == [arrow.id], "new arrows retain stable immediate selection")
+        let gesture = AnnotationEditGesture(original: arrow, anchor: arrow.points[1], handle: .point(1))
+        document.begin()
+        for x in 101...300 { document.elements[0] = gesture.updated(to: CGPoint(x: x, y: 90)) }
+        document.commit()
+        document.undo()
+        expect(document.elements == [arrow] && document.selectedIDs == [arrow.id],
+               "endpoint edit is atomic and restores selection")
+        document.undo()
+        expect(document.elements.isEmpty, "second undo removes creation rather than one raw sample")
+        document.redo()
+        document.begin()
+        document.elements.removeAll()
+        document.cancel()
+        expect(document.elements == [arrow], "cancelled eraser restores original elements")
+        document.edit { $0.elements.removeAll() }
+        expect(document.selectedIDs.isEmpty, "deleting elements prunes selection")
+        document.undo()
+        expect(document.elements == [arrow], "clear and delete are reversible edits")
+        let freehand = AnnotationElement(tool: .freehand, points: arrow.points)
+        expect(AnnotationEditGesture.handle(for: freehand, at: freehand.points[1], tolerance: 12) == nil,
+               "freehand sample is not mistaken for a linear endpoint handle")
     }
 
     private static func bitmap(_ draw: (CGContext) -> Void) -> Data? {
