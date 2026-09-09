@@ -169,10 +169,12 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             registerUndo()
             for index in indexes {
                 annotations[index].style = style
+                if !style.bindEndpoints { annotations[index].startBinding = nil; annotations[index].endBinding = nil }
                 if annotations[index].tool == .text {
                     annotations[index].rect = AnnotationRenderer.textBounds(annotations[index], scale: scale)
                 }
             }
+            AnnotationBindings.finishEdit(selectedIDs, elements: &annotations, tolerance: 14 * scale)
         } else {
             annotationStyleDefaults = style
             objectWillChange.send()
@@ -629,6 +631,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
     }
 
     func continueDrag(to point: CGPoint) {
+        defer { AnnotationBindings.resolve(&annotations) }
         let point = NSEvent.modifierFlags.contains(.shift) && (tool == .arrow || tool == .line)
             && !editingSelectedAnnotation ? AnnotationLinear.constrained(point, from: dragStart) : point
         if linearConstruction != nil { previewLinear(at: point); return }
@@ -705,6 +708,8 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             return
         }
         defer {
+            AnnotationBindings.finishEdit(selectedIDs.union(Set(draftID.map { [$0] } ?? [])),
+                                          elements: &annotations, tolerance: 14 * scale)
             history.commit(snapshot)
             refreshUndoFlags()
             refreshDirtyState()
@@ -862,6 +867,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         }
         annotations[index] = element
         selectedID = element.id
+        AnnotationBindings.finishEdit([element.id], elements: &annotations, tolerance: 14 * scale)
         linearConstruction = nil
         draftID = nil
         history.commit(snapshot)

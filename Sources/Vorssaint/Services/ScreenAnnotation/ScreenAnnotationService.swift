@@ -397,6 +397,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         if selectedID != nil {
             for index in strokes.indices where selectedIDs.contains(strokes[index].id) && !strokes[index].isLocked {
                 strokes[index].style = style
+                if !style.bindEndpoints { strokes[index].startBinding = nil; strokes[index].endBinding = nil }
                 if strokes[index].tool == .text { strokes[index].rect = AnnotationRenderer.textBounds(strokes[index], scale: 1) }
             }
         } else {
@@ -408,6 +409,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             UserDefaults.standard.set(width, forKey: DefaultsKey.screenAnnotationWidth)
         }
         if !continuous { document.commit() }
+        AnnotationBindings.finishEdit(selectedIDs, elements: &strokes, tolerance: 14)
         refreshDocument()
     }
 
@@ -527,6 +529,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     fileprivate func continueStroke(at p: NSPoint, bounds: CGRect) {
+        defer { AnnotationBindings.resolve(&strokes) }
         let p = NSEvent.modifierFlags.contains(.shift) && (tool == .arrow || tool == .line)
             && editGesture == nil && groupGestures.isEmpty ? AnnotationLinear.constrained(p, from: dragStart) : p
         if linearConstruction != nil {
@@ -578,6 +581,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         } else if tool == .arrow, let draftID {
             selectedID = draftID
         }
+        AnnotationBindings.finishEdit(selectedIDs.union(Set(draftID.map { [$0] } ?? [])), elements: &strokes, tolerance: 14)
         document.commit()
         draftID = nil
         editGesture = nil
@@ -602,6 +606,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         }
         strokes[index] = element
         selectedID = element.id
+        AnnotationBindings.finishEdit([element.id], elements: &strokes, tolerance: 14)
         document.commit()
         linearConstruction = nil
         draftID = nil

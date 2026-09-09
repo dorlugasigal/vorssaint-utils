@@ -9,6 +9,7 @@ enum AnnotationTests {
         testSelection(expect)
         testShapeStyles(expect)
         testLinear(expect)
+        testBindings(expect)
         let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
         for anchor in [CGRect(x: -1900, y: 1100, width: 50, height: 50),
                        CGRect(x: -100, y: 2050, width: 50, height: 50)] {
@@ -232,6 +233,47 @@ enum AnnotationTests {
         for language in AppLanguage.allCases {
             expect(AnnotationLinearStrings.labels(language).count == 21, "linear inspector localized for \(language)")
         }
+    }
+
+    private static func testBindings(_ expect: (Bool, String) -> Void) {
+        let shape = AnnotationElement(tool: .rect, rect: CGRect(x: 20, y: 20, width: 100, height: 80))
+        var arrow = AnnotationElement(tool: .arrow, points: [CGPoint(x: 120, y: 60), CGPoint(x: 200, y: 60)])
+        var style = arrow.resolvedStyle
+        style.bindEndpoints = true
+        arrow.style = style
+        AnnotationBindings.attach(&arrow, in: [shape], tolerance: 14)
+        expect(arrow.startBinding?.targetID == shape.id && arrow.endBinding == nil,
+               "only nearby endpoint attaches to a shape")
+        var document = AnnotationDocument()
+        document.edit { $0.elements = [shape, arrow] }
+        document.begin()
+        document.elements[0].rect.origin.x += 50
+        document.commit()
+        expect(document.elements[1].points[0] == CGPoint(x: 170, y: 60), "binding follows target translation")
+        document.undo()
+        expect(document.elements[1].points[0] == arrow.points[0], "one undo restores target and bound endpoint")
+        document.edit { $0.elements.removeFirst() }
+        expect(document.elements[0].startBinding == nil && document.elements[0].points[0] == arrow.points[0],
+               "deleted target detaches without jumping endpoint")
+        document.undo()
+        expect(document.elements[1].startBinding?.targetID == shape.id, "undo restores binding identity")
+        document.selectedIDs = [shape.id, arrow.id]
+        document.edit { AnnotationSelection.apply(.duplicate, to: &$0) }
+        let copiedShape = document.elements[2]
+        let copiedArrow = document.elements[3]
+        expect(copiedArrow.startBinding?.targetID == copiedShape.id
+            && copiedArrow.startBinding?.targetID != shape.id, "duplicate remaps binding to copied target")
+        var rotated = shape
+        rotated.rotation = .pi / 2
+        var elements = [rotated, arrow]
+        AnnotationBindings.resolve(&elements)
+        expect(abs(elements[1].points[0].x - 70) < 0.001 && abs(elements[1].points[0].y - 110) < 0.001,
+               "binding resolves through target rotation")
+        let unchanged = elements
+        AnnotationBindings.resolve(&elements)
+        expect(elements == unchanged, "binding resolution is idempotent")
+        expect(AnnotationBindings.nearest(to: .zero, in: [arrow], tolerance: 1000) == nil,
+               "linear targets cannot create recursive binding graphs")
     }
 
     private static func bitmap(_ draw: (CGContext) -> Void) -> Data? {

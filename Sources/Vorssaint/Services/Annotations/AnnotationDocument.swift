@@ -76,7 +76,10 @@ struct AnnotationDocument {
     }
 
     mutating func begin() { history.begin(state) }
-    mutating func commit() { history.commit(state) }
+    mutating func commit() {
+        AnnotationBindings.resolve(&state.elements)
+        history.commit(state)
+    }
     mutating func cancel() {
         if let original = history.cancel() { state = original }
     }
@@ -140,6 +143,8 @@ struct AnnotationEditGesture {
             result.rect = original.rect.offsetBy(dx: delta.x, dy: delta.y)
             result.points = original.points.map { CGPoint(x: $0.x + delta.x, y: $0.y + delta.y) }
             result.controls = original.controls.map { CGPoint(x: $0.x + delta.x, y: $0.y + delta.y) }
+            result.startBinding = nil
+            result.endBinding = nil
         case .control(let index):
             result.controls = AnnotationLinear.controls(original)
             result.controls[index] = point
@@ -147,6 +152,8 @@ struct AnnotationEditGesture {
             if result.points.indices.contains(index) {
                 result.points[index] = point.applying(AnnotationGeometry.transform(original).inverted())
                 result.controls = []
+                if index == 0 { result.startBinding = nil }
+                if index == result.points.count - 1 { result.endBinding = nil }
             }
         case .resize(let handle):
             result.rect = ScreenshotSupport.resizedRect(original.rect, dragging: handle,

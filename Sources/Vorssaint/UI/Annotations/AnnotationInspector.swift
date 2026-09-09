@@ -85,6 +85,7 @@ struct AnnotationInspector: View {
                 Slider(value: $style.headSize, in: 1...1.75, onEditingChanged: editingChanged)
                     .frame(width: 120)
                     .accessibilityLabel(labels[18])
+                Toggle(AnnotationLinearStrings.bindings(localization.language), isOn: $style.bindEndpoints)
             }
         }
     }

@@ -32,14 +32,19 @@ enum AnnotationSelection {
             state.selection.subtract(editable)
         case .duplicate:
             var groups: [UUID: UUID] = [:]
-            let copies = state.elements.filter { editable.contains($0.id) }.map { original in
-                var copy = AnnotationElement(tool: original.tool,
+            let originals = state.elements.filter { editable.contains($0.id) }
+            let pairs = Array(zip(originals, originals.map { _ in UUID() }))
+            let replacements = Dictionary(uniqueKeysWithValues: pairs.map { ($0.0.id, $0.1) })
+            let copies = pairs.map { original, id in
+                var copy = AnnotationElement(id: id, tool: original.tool,
                     rect: original.rect.offsetBy(dx: 16, dy: 16),
                     points: original.points.map { CGPoint(x: $0.x + 16, y: $0.y + 16) },
                     text: original.text, color: original.color, stroke: original.stroke,
                     number: original.number, style: original.style)
                 copy.rotation = original.rotation
                 copy.controls = original.controls.map { CGPoint(x: $0.x + 16, y: $0.y + 16) }
+                copy.startBinding = original.startBinding?.remapped(replacements)
+                copy.endBinding = original.endBinding?.remapped(replacements)
                 if let group = original.groupID {
                     if groups[group] == nil { groups[group] = UUID() }
                     copy.groupID = groups[group]
@@ -108,5 +113,6 @@ enum AnnotationSelection {
             }
         }
         state.elements = ScreenshotSupport.renumberingCounters(state.elements)
+        AnnotationBindings.resolve(&state.elements)
     }
 }

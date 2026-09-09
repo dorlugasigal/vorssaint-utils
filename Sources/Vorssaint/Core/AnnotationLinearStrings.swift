@@ -2,6 +2,23 @@
 // Copyright (C) 2026 Vorssaint
 
 enum AnnotationLinearStrings {
+    static func bindings(_ language: AppLanguage) -> String {
+        switch language {
+        case .enUS: return "Bind endpoints to shapes"
+        case .ptBR: return "Vincular pontas às formas"
+        case .tr: return "Uçları şekillere bağla"
+        case .ru: return "Привязать концы к фигурам"
+        case .es: return "Vincular extremos a formas"
+        case .de: return "Endpunkte an Formen binden"
+        case .fr: return "Lier les extrémités aux formes"
+        case .it: return "Collega estremità alle forme"
+        case .ja: return "端点を図形に接続"
+        case .ko: return "끝점을 도형에 연결"
+        case .zhHans: return "将端点绑定到形状"
+        case .zhTW, .zhHK: return "將端點綁定到形狀"
+        }
+    }
+
     static func head(_ head: AnnotationArrowhead, _ language: AppLanguage) -> String {
         labels(language)[head.rawValue]
     }

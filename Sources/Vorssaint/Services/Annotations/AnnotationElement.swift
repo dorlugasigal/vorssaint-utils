@@ -20,6 +20,8 @@ struct AnnotationElement: Identifiable, Equatable {
     var groupID: UUID?
     var isLocked = false
     var controls: [CGPoint] = []
+    var startBinding: AnnotationBinding?
+    var endBinding: AnnotationBinding?
 
     init(id: UUID = UUID(), tool: ScreenshotSupport.Tool, rect: CGRect = .zero,
          points: [CGPoint] = [], text: String = "", color: ScreenshotSupport.ColorID = .red,
@@ -64,6 +66,7 @@ struct AnnotationStyle: Equatable {
     var startHead: AnnotationArrowhead = .none
     var endHead: AnnotationArrowhead = .legacy
     var headSize: CGFloat = 1
+    var bindEndpoints = false
 
     func sanitized() -> AnnotationStyle {
         var result = self
