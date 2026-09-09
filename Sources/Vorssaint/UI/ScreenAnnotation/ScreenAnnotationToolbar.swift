@@ -57,7 +57,7 @@ private struct AnnotationToolbarView: View {
             }
             AnnotationInspector(style: Binding(get: { service.inspectorStyle }, set: service.setInspectorStyle),
                                 editingChanged: service.styleEditingChanged, tool: service.inspectorTool,
-                                editPoints: service.editLinearPoints)
+                                editPoints: service.editLinearPoints, smartDraw: $service.smartDrawEnabled)
             HStack {
                 if service.hasLinearConstruction {
                     Button(FeatureStrings.screenshot(localization.language).done, action: service.finishLinearConstruction)

@@ -16,6 +16,11 @@ default Architect style preserves Vorssaint's original screenshot geometry.
 Rough geometry is intentionally native to the shared path model rather than
 copying ZoomIt's zoom-dependent rendering and controller machinery.
 
+`SmartDrawRecognizer.swift` retains the MIT-licensed fitting, outlier rejection,
+confidence/stability policy and bounded recognition budget from ZoomIt.
+Only its candidate model is adapted to shared Vorssaint elements. Work is
+cancellable and generation-checked; unsupported strokes remain freehand.
+
 The destination contribution is GPL-3.0-or-later. The following permission
 notice applies to the attributed ZoomIt-derived portions:
 

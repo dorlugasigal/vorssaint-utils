@@ -46,7 +46,7 @@ struct ScreenshotEditorView: View {
                     && model.tool != .sticker && model.tool != .counter {
                     AnnotationInspector(style: Binding(get: { model.inspectorStyle }, set: model.setInspectorStyle),
                                         editingChanged: model.styleEditingChanged, tool: model.inspectorTool,
-                                        editPoints: model.editLinearPoints)
+                                        editPoints: model.editLinearPoints, smartDraw: $model.smartDrawEnabled)
                         .padding(.horizontal, 12)
                 }
                 HStack(spacing: 0) {

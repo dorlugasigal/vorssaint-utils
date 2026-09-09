@@ -48,6 +48,14 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     private var linearConstruction: AnnotationLinearConstruction?
     private var strokeSampler = AnnotationInputSampler()
     private var eraserLast = CGPoint.zero
+    private let smartDraw = AnnotationSmartDraw()
+    private var strokeStartTime: TimeInterval = 0
+    @Published var smartDrawEnabled = false {
+        didSet {
+            UserDefaults.standard.set(smartDrawEnabled, forKey: DefaultsKey.screenAnnotationSmartDraw)
+            if !smartDrawEnabled { smartDraw.cancel() }
+        }
+    }
     private(set) var editingTextID: UUID?
     var hasLinearConstruction: Bool { linearConstruction != nil }
     var selectedIDs: Set<UUID> { document.selectedIDs }
@@ -137,6 +145,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     fileprivate func cancelGesture() {
+        smartDraw.cancel()
         document.cancel()
         editingTextID = nil
         drawingView?.cancelTextEditor()
@@ -360,6 +369,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - Preferences
 
     func loadPreferences() {
+        smartDrawEnabled = UserDefaults.standard.bool(forKey: DefaultsKey.screenAnnotationSmartDraw)
         if let raw = UserDefaults.standard.string(forKey: DefaultsKey.screenAnnotationTool),
            let t = AnnotationTool(rawValue: raw) { tool = t }
         if let raw = UserDefaults.standard.string(forKey: DefaultsKey.screenAnnotationColor) {
@@ -456,6 +466,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         }
         cancelGesture()
         dragStart = p
+        strokeStartTime = ProcessInfo.processInfo.systemUptime
         eraserLast = p
         if tool == .text {
             beginTextEditing(at: p, bounds: bounds)
@@ -604,6 +615,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             let samples = strokeSampler.sample(p, timestamp: event?.timestamp ?? ProcessInfo.processInfo.systemUptime,
                 hardwarePressure: hardware, mode: strokes[i].resolvedStyle.pressure, final: final)
             strokes[i].appendFreehand(samples)
+            if smartDrawEnabled {
+                let now = ProcessInfo.processInfo.systemUptime
+                smartDraw.preview(strokes[i], timestamp: now, duration: now - strokeStartTime, scale: 1)
+            }
         } else if strokes[i].tool.dragsRect {
             strokes[i].rect = ScreenshotSupport.selectionRect(from: dragStart, to: p)
         } else {
@@ -626,12 +641,23 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             selectedID = draftID
         }
         AnnotationBindings.finishEdit(selectedIDs.union(Set(draftID.map { [$0] } ?? [])), elements: &strokes, tolerance: 14)
+        let completedStroke = strokes.first { $0.id == draftID && $0.tool == .freehand }
         document.commit()
         draftID = nil
         editGesture = nil
         groupGestures.removeAll()
         marquee = nil
         refreshDocument()
+        if smartDrawEnabled, let completedStroke {
+            smartDraw.finish(completedStroke, duration: ProcessInfo.processInfo.systemUptime - strokeStartTime, scale: 1) { [weak self] converted in
+                guard let self, let index = self.strokes.firstIndex(where: {
+                    $0.id == completedStroke.id && $0.geometryRevision == completedStroke.geometryRevision
+                }) else { return }
+                self.strokes[index] = converted
+                self.selectedID = converted.id
+                self.refreshDocument()
+            }
+        }
     }
 
     private func updateLinearPreview() {
