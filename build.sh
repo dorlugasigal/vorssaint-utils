@@ -270,6 +270,7 @@ if (( TEST )); then
         Sources/Vorssaint/Core/AnnotationTextStrings.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationPanelPlacement.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationRenderer.swift \
+        Sources/Vorssaint/Services/Annotations/AnnotationControlPreview.swift \
         Sources/Vorssaint/Core/FeaturePresets.swift \
         Sources/Vorssaint/Core/FeatureHubStrings.swift \
         Sources/Vorssaint/Core/ShortcutSettingsStrings.swift \

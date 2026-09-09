@@ -5,6 +5,7 @@ import AppKit
 
 enum AnnotationTests {
     static func run(_ expect: (Bool, String) -> Void) {
+        testControlPreviews(expect)
         testEditing(expect)
         testSelection(expect)
         testShapeStyles(expect)
@@ -314,6 +315,38 @@ enum AnnotationTests {
         expect(document.elements == [text], "text and inspector style edits undo in one transaction")
         for language in AppLanguage.allCases {
             expect(AnnotationTextStrings.labels(language).count == 11, "text inspector localized for \(language)")
+        }
+    }
+
+    private static func testControlPreviews(_ expect: (Bool, String) -> Void) {
+        let families: [[AnnotationControlPreview]] = [
+            AnnotationStyle.Fill.allCases.map { .fill($0) },
+            AnnotationStyle.Pattern.allCases.map { .pattern($0) },
+            [CGFloat(2), 4, 7].map { .width($0) },
+            AnnotationStyle.Shape.allCases.map { .shape($0) },
+            [.route(curved: false), .route(curved: true)]
+        ]
+        for family in families {
+            for color in [AnnotationColor.black, .white] {
+                let rendered = family.compactMap { preview in
+                    bitmap { context in
+                        context.scaleBy(x: 28 / 120, y: 28 / 120)
+                        preview.draw(in: context, color: color)
+                    }
+                }
+                expect(rendered.count == family.count && Set(rendered).count == family.count,
+                       "visual inspector options remain distinct at their actual icon size")
+            }
+        }
+        for head in AnnotationArrowhead.allCases {
+            for start in [false, true] {
+                let pixels = bitmap { context in
+                    context.scaleBy(x: 28 / 120, y: 28 / 120)
+                    AnnotationControlPreview.head(head, start: start).draw(in: context, color: .white)
+                }
+                expect(pixels?.contains(where: { $0 != 0 }) == true,
+                       "each start/end arrowhead option renders a visible preview")
+            }
         }
     }
 
