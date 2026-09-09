@@ -35,7 +35,8 @@ enum AnnotationRoughness {
             var overshoots: [(CGPoint, CGPoint)] = []
             func jittered(_ point: CGPoint) -> CGPoint {
                 guard sketch else { return point }
-                let amount: CGFloat = 2 * widthScale * scale
+                let amount = min(4 * scale,
+                                 min(canonical.boundingBoxOfPath.width, canonical.boundingBoxOfPath.height) * 0.04) * widthScale
                 return CGPoint(x: point.x + generator.signedUnit() * amount,
                                y: point.y + generator.signedUnit() * amount)
             }
@@ -57,10 +58,14 @@ enum AnnotationRoughness {
                 result.addCurve(to: end, control1: perturbed(c1, from: current, to: end),
                                 control2: perturbed(c2, from: current, to: end))
                 let length = hypot(end.x - current.x, end.y - current.y)
-                if sketch, overshoots.count < 2, length > 24 * scale, generator.signedUnit() > 0.35 {
-                    let extra = min(length * 0.03, 5 * widthScale * scale) * (0.5 + abs(generator.signedUnit()))
-                    overshoots.append((end, CGPoint(x: end.x + (end.x - current.x) / length * extra,
-                                                   y: end.y + (end.y - current.y) / length * extra)))
+                if sketch, overshoots.isEmpty, length > 24 * scale,
+                   abs(end.y - current.y) > abs(end.x - current.x), generator.signedUnit() > 0 {
+                    let dx = (end.x - current.x) / length, dy = (end.y - current.y) / length
+                    let extra = min(length * 0.06, 12 * widthScale * scale) * (0.5 + abs(generator.signedUnit()))
+                    let sideways = generator.signedUnit() * 4 * widthScale * scale
+                    let retrace = CGPoint(x: end.x - dx * length * 0.18, y: end.y - dy * length * 0.18)
+                    overshoots.append((retrace, CGPoint(x: end.x + dx * extra - dy * sideways,
+                                                       y: end.y + dy * extra + dx * sideways)))
                 }
                 current = end
             }

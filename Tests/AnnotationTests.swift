@@ -1212,15 +1212,20 @@ enum AnnotationTests {
         var sketch = AnnotationElement(tool: .rect, rect: rect,
             style: AnnotationStyle(color: .red, width: 3, character: .cartoonist))
         var accentCount = 0
+        var maximumSeparation: CGFloat = 0
         for seed: UInt64 in 0..<8 {
             sketch.roughSeed = seed
             let outline = AnnotationGeometry.path(sketch)
             AnnotationPathCache.shared.removeAll()
             expect(outline == AnnotationGeometry.path(sketch), "sketched shape remains deterministic")
             expect(outline.contains(CGPoint(x: rect.midX, y: rect.midY)), "sketched contours retain fill and interior hit geometry")
-            expect(rect.insetBy(dx: -16, dy: -16).contains(outline.boundingBoxOfPath), "corner overdraw stays bounded")
+            expect(rect.insetBy(dx: -32, dy: -32).contains(outline.boundingBoxOfPath), "corner overdraw stays bounded")
             let contours = AnnotationPathSampling.polylines(outline)
-            expect(contours.filter { $0.count > 3 && $0.first == $0.last }.count == 2, "sketch retains two closed outlines")
+            let closed = contours.filter { $0.count > 3 && $0.first == $0.last }
+            expect(closed.count == 2, "sketch retains two closed outlines")
+            if closed.count == 2, let a = closed[0].first, let b = closed[1].first {
+                maximumSeparation = max(maximumSeparation, hypot(a.x - b.x, a.y - b.y))
+            }
             accentCount += contours.filter { $0.first != $0.last }.count
             var current = CGPoint.zero
             var largestBend: CGFloat = 0
@@ -1240,6 +1245,7 @@ enum AnnotationTests {
             expect(largestBend <= 2.5, "sketched rectangle edges avoid exaggerated lens-shaped bows")
         }
         expect(accentCount > 0, "seeded sketch samples include small corner overshoots")
+        expect(maximumSeparation > 7, "rough shape variants have visibly distinct overlaid strokes")
         var twice = sketch
         twice.rect = CGRect(x: rect.minX * 2, y: rect.minY * 2, width: rect.width * 2, height: rect.height * 2)
         var doubledTransform = CGAffineTransform(scaleX: 2, y: 2)
