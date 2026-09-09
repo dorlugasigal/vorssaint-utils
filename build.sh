@@ -246,7 +246,7 @@ discard_test_preferences() {
 # then exit. Fast and deterministic; no XCTest needed.
 if (( TEST )); then
     echo "▸ Building & running unit tests against $(basename "$SDK")…"
-    rm -rf build
+    # Keep the development binary and incremental objects for preview/rebuilds.
     mkdir -p build
     # The full app build below remains optimized and is the optimizer gate.
     # Unit assertions do not need optimization; avoiding it cuts most of the

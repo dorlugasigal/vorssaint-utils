@@ -1089,6 +1089,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
 final class ScreenshotEditorController: NSObject, NSWindowDelegate {
     let model: ScreenshotEditorModel
     private var window: NSWindow?
+    var windowNumber: Int? { window?.windowNumber }
     private var keyMonitor: Any?
     private var scrollMonitor: Any?
 

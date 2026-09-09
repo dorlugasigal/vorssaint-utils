@@ -353,8 +353,8 @@ struct ScreenshotEditorView: View {
     // MARK: - Gestures
 
     private func updateCursor(zoom: CGFloat) {
-        guard let point = hoverPoint, let window = controller.window,
-              NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == window.windowNumber
+        guard let point = hoverPoint, let windowNumber = controller.windowNumber,
+              NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == windowNumber
         else { return }
         if !CGRect(origin: .zero, size: model.imageSize).contains(point) {
             NSCursor.arrow.set()
