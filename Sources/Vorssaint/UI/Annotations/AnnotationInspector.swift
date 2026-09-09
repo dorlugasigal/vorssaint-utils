@@ -20,9 +20,11 @@ struct AnnotationInspector: View {
                                    editingChanged: editingChanged)
                 .frame(width: 32, height: 24)
                 .help(strings.colorLabel)
-            Image(systemName: "lineweight").help(strings.strokeLabel)
+            AnnotationVisualChoices(values: [CGFloat(2), 4, 7], selection: $style.width,
+                label: { "\(strings.strokeLabel): \($0.formatted())" },
+                preview: { .width($0) })
             Slider(value: $style.width, in: 1...40, onEditingChanged: editingChanged)
-                .frame(width: 85)
+                .frame(width: 60)
                 .accessibilityLabel(strings.strokeLabel)
             Image(systemName: "circle.lefthalf.filled")
             Slider(value: $style.opacity, in: 0...1, onEditingChanged: editingChanged)
@@ -31,19 +33,14 @@ struct AnnotationInspector: View {
             }
             if tool == .rect || tool == .ellipse || tool == .line || tool == .arrow || tool == .freehand {
                 HStack(spacing: 10) {
-                    Picker(AnnotationStyleStrings.pattern(localization.language), selection: $style.pattern) {
-                        ForEach(AnnotationStyle.Pattern.allCases, id: \.rawValue) { pattern in
-                            Text(AnnotationStyleStrings.patternName(pattern, localization.language)).tag(pattern)
-                        }
-                    }
-                    .frame(width: 145)
+                    AnnotationVisualChoices(values: AnnotationStyle.Pattern.allCases, selection: $style.pattern,
+                        label: { AnnotationStyleStrings.patternName($0, localization.language) },
+                        preview: { .pattern($0) })
                     if tool == .rect || tool == .ellipse {
-                        Picker(AnnotationStyleStrings.fill(localization.language), selection: $style.fill) {
-                            ForEach(AnnotationStyle.Fill.allCases, id: \.rawValue) { fill in
-                                Text(AnnotationStyleStrings.fillName(fill, localization.language)).tag(fill)
-                            }
-                        }
-                        .frame(width: 160)
+                        Divider().frame(height: 24)
+                        AnnotationVisualChoices(values: AnnotationStyle.Fill.allCases, selection: $style.fill,
+                            label: { AnnotationStyleStrings.fillName($0, localization.language) },
+                            preview: { .fill($0) })
                         AnnotationColorControl(color: $style.fillColor, editingChanged: editingChanged)
                             .frame(width: 32, height: 24)
                             .help(AnnotationStyleStrings.fill(localization.language))
@@ -52,11 +49,9 @@ struct AnnotationInspector: View {
             }
             if tool == .rect {
                 HStack {
-                    Picker(strings.toolRect, selection: $style.shape) {
-                        Text(strings.toolRect).tag(AnnotationStyle.Shape.standard)
-                        Text(AnnotationStyleStrings.diamond(localization.language)).tag(AnnotationStyle.Shape.diamond)
-                    }
-                    .frame(width: 160)
+                    AnnotationVisualChoices(values: AnnotationStyle.Shape.allCases, selection: $style.shape,
+                        label: { $0 == .standard ? strings.toolRect : AnnotationStyleStrings.diamond(localization.language) },
+                        preview: { .shape($0) })
                     Slider(value: $style.roundness, in: 0...1, onEditingChanged: editingChanged)
                         .frame(width: 100)
                         .accessibilityLabel(AnnotationStyleStrings.roundness(localization.language))
@@ -65,22 +60,21 @@ struct AnnotationInspector: View {
             if tool == .line || tool == .arrow {
                 let labels = AnnotationLinearStrings.labels(localization.language)
                 HStack {
-                    Toggle(labels[14], isOn: $style.curved)
-                    Toggle(labels[15], isOn: $style.multiClick)
+                    AnnotationVisualChoices(values: [false, true], selection: $style.curved,
+                        label: { $0 ? labels[14] : strings.toolLine },
+                        preview: { .route(curved: $0) })
+                    Toggle(isOn: $style.multiClick) {
+                        Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                    }
+                    .toggleStyle(.button)
+                    .help(labels[15])
+                    .accessibilityLabel(labels[15])
                     Button { editPoints(true) } label: { Image(systemName: "plus.circle") }.help(labels[19])
                     Button { editPoints(false) } label: { Image(systemName: "minus.circle") }.help(labels[20])
                 }
                 HStack {
-                    Picker(labels[16], selection: $style.startHead) {
-                        ForEach(AnnotationArrowhead.allCases, id: \.rawValue) { head in
-                            Text(AnnotationLinearStrings.head(head, localization.language)).tag(head)
-                        }
-                    }
-                    Picker(labels[17], selection: $style.endHead) {
-                        ForEach(AnnotationArrowhead.allCases, id: \.rawValue) { head in
-                            Text(AnnotationLinearStrings.head(head, localization.language)).tag(head)
-                        }
-                    }
+                    AnnotationArrowheadChoice(selection: $style.startHead, isStart: true, label: labels[16])
+                    AnnotationArrowheadChoice(selection: $style.endHead, isStart: false, label: labels[17])
                 }
                 Slider(value: $style.headSize, in: 1...1.75, onEditingChanged: editingChanged)
                     .frame(width: 120)
@@ -127,8 +121,25 @@ private struct AnnotationColorControl: NSViewRepresentable {
 
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.control = self
-        button.image = NSImage(systemSymbolName: "paintpalette.fill", accessibilityDescription: nil)
-        button.contentTintColor = AnnotationRenderer.color(AnnotationStyle(color: color, width: 1))
+        let swatchColor = AnnotationRenderer.color(AnnotationStyle(color: color, width: 1))
+        button.image = NSImage(size: NSSize(width: 24, height: 16), flipped: false) { rect in
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            let outline = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
+            outline.addClip()
+            for row in 0..<2 {
+                for column in 0..<3 {
+                    ((row + column).isMultiple(of: 2) ? NSColor.white : NSColor.lightGray).setFill()
+                    NSRect(x: CGFloat(column) * 8, y: CGFloat(row) * 8, width: 8, height: 8).fill()
+                }
+            }
+            swatchColor.setFill()
+            outline.fill()
+            NSColor.separatorColor.setStroke()
+            outline.lineWidth = 1
+            outline.stroke()
+            return true
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(control: self) }
