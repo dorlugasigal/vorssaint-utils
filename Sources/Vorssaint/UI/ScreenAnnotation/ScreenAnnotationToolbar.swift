@@ -21,15 +21,23 @@ private struct AnnotationToolbarView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 7) {
-                ForEach(AnnotationTool.allCases, id: \.rawValue) { tool in
-                    Button { service.setTool(tool) } label: {
-                        Image(systemName: toolSymbol(tool)).frame(width: 27, height: 25)
+            HStack(spacing: 4) {
+                ForEach(AnnotationToolShortcuts.entries, id: \.choice) { entry in
+                    Button { service.setToolChoice(entry.choice) } label: {
+                        VStack(spacing: 2) {
+                            Image(systemName: toolSymbol(entry.choice)).frame(height: 21)
+                            Text(entry.keys.first ?? " ").font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(width: 34, height: 36)
                     }
                     .buttonStyle(.borderless)
-                    .background(service.tool == tool ? Color.accentColor.opacity(0.22) : .clear,
+                    .background(service.toolChoice == entry.choice ? Color.accentColor.opacity(0.22) : .clear,
                                 in: RoundedRectangle(cornerRadius: 7))
-                    .help(toolTitle(tool))
+                    .help(entry.keys.isEmpty ? toolTitle(entry.choice)
+                          : "\(toolTitle(entry.choice)) (\(entry.keys.joined(separator: ", ")))")
+                    .accessibilityLabel(toolTitle(entry.choice))
+                    .accessibilityAddTraits(service.toolChoice == entry.choice ? .isSelected : [])
                 }
             }
             Divider()
@@ -82,9 +90,10 @@ private struct AnnotationToolbarView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private func toolTitle(_ tool: AnnotationTool) -> String {
+    private func toolTitle(_ choice: AnnotationToolChoice) -> String {
         let screenshot = FeatureStrings.screenshot(localization.language)
-        switch tool {
+        if choice == .shape(.diamond) { return AnnotationStyleStrings.diamond(localization.language) }
+        switch choice.tool {
         case .select: return screenshot.toolSelect
         case .pen: return strings.pen
         case .highlighter: return strings.highlighter
@@ -98,8 +107,9 @@ private struct AnnotationToolbarView: View {
         }
     }
 
-    private func toolSymbol(_ tool: AnnotationTool) -> String {
-        switch tool {
+    private func toolSymbol(_ choice: AnnotationToolChoice) -> String {
+        if choice == .shape(.diamond) { return "diamond" }
+        switch choice.tool {
         case .select: return "cursorarrow"
         case .pen: return "pencil"
         case .highlighter: return "highlighter"

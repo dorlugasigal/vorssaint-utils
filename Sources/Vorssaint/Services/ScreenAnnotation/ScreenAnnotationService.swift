@@ -57,6 +57,11 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         background = Background(rawValue: (background.rawValue + 1) % 3) ?? .transparent
         drawingView?.needsDisplay = true
     }
+
+    func toggleBackground(_ value: Background) {
+        background = background == value ? .transparent : value
+        drawingView?.needsDisplay = true
+    }
     @Published private(set) var shortcutRegistrationFailed = false
 
     // Preferences (kept in sync with UserDefaults)
@@ -324,6 +329,21 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                 guard let self, event.window is AnnotationCanvasPanel else { return event }
                 if event.type == .keyDown {
                     if event.window?.firstResponder is NSTextView { return event }
+                    if let board = AnnotationToolShortcuts.boardKey(
+                        characters: event.charactersIgnoringModifiers,
+                        controlOnly: event.modifierFlags.intersection([.command, .control, .option, .shift]) == .control
+                    ) {
+                        if !event.isARepeat { self.toggleBackground(board == .white ? .white : .black) }
+                        return nil
+                    }
+                    if let choice = AnnotationToolShortcuts.resolve(
+                        keyCode: Int(event.keyCode), characters: event.charactersIgnoringModifiers,
+                        shift: event.modifierFlags.contains(.shift),
+                        hasApplicationModifier: !event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+                    ) {
+                        if !event.isARepeat { self.setToolChoice(choice) }
+                        return nil
+                    }
                     if event.modifierFlags.contains(.command),
                        event.charactersIgnoringModifiers?.lowercased() == "z" {
                         event.modifierFlags.contains(.shift) ? self.redo() : self.undo()
@@ -368,9 +388,23 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     func setTool(_ t: AnnotationTool) {
         cancelGesture()
+        if t != .select { selectedID = nil }
         tool = t
         UserDefaults.standard.set(t.rawValue, forKey: DefaultsKey.screenAnnotationTool)
         DispatchQueue.main.async { [weak self] in self?.fitToolbar() }
+    }
+
+    var toolChoice: AnnotationToolChoice {
+        tool == .rectangle ? .shape(creationStyle.shape) : .tool(tool)
+    }
+
+    func setToolChoice(_ choice: AnnotationToolChoice) {
+        setTool(choice.tool)
+        if case .shape(let shape) = choice {
+            var style = creationStyle
+            style.shape = shape
+            setInspectorStyle(style)
+        }
     }
 
     func setColor(_ c: AnnotationColor) {

@@ -6,6 +6,7 @@ import AppKit
 enum AnnotationTests {
     static func run(_ expect: (Bool, String) -> Void) {
         testControlPreviews(expect)
+        testToolShortcuts(expect)
         testEditing(expect)
         testSelection(expect)
         testShapeStyles(expect)
@@ -316,6 +317,36 @@ enum AnnotationTests {
         for language in AppLanguage.allCases {
             expect(AnnotationTextStrings.labels(language).count == 11, "text inspector localized for \(language)")
         }
+    }
+
+    private static func testToolShortcuts(_ expect: (Bool, String) -> Void) {
+        for entry in AnnotationToolShortcuts.entries {
+            for key in entry.keys {
+                let shift = key == "Shift-E"
+                let resolved = AnnotationToolShortcuts.resolve(
+                    keyCode: -1, characters: shift ? "E" : key, shift: shift, hasApplicationModifier: false)
+                expect(resolved == entry.choice, "displayed tool hint \(key) resolves to its visible tool")
+            }
+        }
+        for blocked in [true, false] {
+            expect(AnnotationToolShortcuts.resolve(keyCode: 23, characters: "5", shift: false,
+                hasApplicationModifier: blocked, isTyping: !blocked) == nil,
+                "typing and application shortcuts do not switch annotation tools")
+        }
+        expect(AnnotationToolShortcuts.resolve(keyCode: 20, characters: "#", shift: true,
+            hasApplicationModifier: false) == .shape(.diamond), "shifted number row keeps ZoomIt mapping")
+        expect(AnnotationToolShortcuts.resolve(keyCode: 25, characters: "9", shift: false,
+            hasApplicationModifier: false) == nil, "reserved 9 does not advertise an unavailable tool")
+        expect(AnnotationToolShortcuts.resolve(keyCode: -1, characters: "e", shift: false,
+            hasApplicationModifier: false) == nil, "plain E is not mistaken for Shift-E eraser")
+        expect(Set(AnnotationToolShortcuts.entries.flatMap(\.keys)).count
+            == AnnotationToolShortcuts.entries.flatMap(\.keys).count, "tool bindings are unambiguous")
+        expect(AnnotationToolShortcuts.boardKey(characters: "w", controlOnly: true) == .white
+            && AnnotationToolShortcuts.boardKey(characters: "k", controlOnly: true) == .black,
+            "Control-W and Control-K match ZoomIt board shortcuts")
+        expect(AnnotationToolShortcuts.boardKey(characters: "w", controlOnly: false) == nil
+            && AnnotationToolShortcuts.boardKey(characters: "w", controlOnly: true, isTyping: true) == nil,
+            "board shortcuts do not intercept normal letters or native text editing")
     }
 
     private static func testControlPreviews(_ expect: (Bool, String) -> Void) {
