@@ -3,7 +3,7 @@
 
 import AppKit
 import Carbon.HIToolbox
-import SwiftUI
+import Combine
 
 /// Screen annotation overlay — draw on top of everything.
 ///
@@ -24,7 +24,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     // MARK: - State
 
-    private(set) var isDrawingActive = false
+    @Published private(set) var isDrawingActive = false
     private(set) var strokes: [AnnotationStroke] = []
     @Published private(set) var selectedStrokeIndex: Int?
     @Published private(set) var shortcutRegistrationFailed = false
@@ -37,13 +37,11 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - Monitors
 
     private var keyMonitor: Any?
-    private var globalKeyMonitor: Any?
-
-    // MARK: - Shortcut (Carbon)
-
-    private var hotKeyRef: EventHotKeyRef?
-    private var hotKeyHandler: EventHandlerRef?
-    private var registeredShortcut: GlobalShortcut?
+    private var sessionScreen: NSScreen?
+    private var sessionGeometry: AnnotationDisplayGeometry?
+    private var sessionObservers: [NSObjectProtocol] = []
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private let hotkey = QuickToolHotkey(id: 7)
 
     private override init() { super.init() }
 
@@ -58,7 +56,13 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // Entry point from menu / shortcut
     @objc func toggleDrawing() {
         guard AppFeature.screenAnnotation.isAvailable else { return }
-        if canvasPanel == nil { buildPanels() }
+        if canvasPanel == nil {
+            guard let screen = NSScreen.withMouse else {
+                NSSound.beep()
+                return
+            }
+            buildPanels(screen: screen)
+        }
         isDrawingActive ? exitDrawingMode() : enterDrawingMode()
     }
 
@@ -73,16 +77,17 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     @objc func hideOverlay() {
-        exitDrawingMode()
-        canvasPanel?.orderOut(nil)
-        toolbarPanel?.orderOut(nil)
+        closeSession()
     }
 
-    func teardown() {
+    private func closeSession() {
         exitDrawingMode()
-        removeKeyMonitors()
-        unregisterShortcut()
+        sessionObservers.forEach(NotificationCenter.default.removeObserver)
+        workspaceObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
+        sessionObservers.removeAll()
+        workspaceObservers.removeAll()
         canvasPanel?.orderOut(nil)
+        toolbarPanel?.orderOut(nil)
         canvasPanel?.contentView = nil
         canvasPanel = nil
         toolbarPanel?.orderOut(nil)
@@ -90,6 +95,14 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         toolbarPanel = nil
         drawingView = nil
         strokes.removeAll()
+        selectedStrokeIndex = nil
+        sessionScreen = nil
+        sessionGeometry = nil
+    }
+
+    func teardown() {
+        closeSession()
+        unregisterShortcut()
     }
 
     // MARK: - Drawing mode
@@ -106,6 +119,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     private func exitDrawingMode() {
+        drawingView?.cancelInteraction()
         isDrawingActive = false
         // Keep the strokes visible, but restore pass-through to the app below.
         canvasPanel?.ignoresMouseEvents = ScreenAnnotationSupport.canvasIgnoresMouseEvents(isDrawing: false)
@@ -116,10 +130,33 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 
     // MARK: - Panel building
 
-    private func buildPanels() {
-        guard let screen = NSScreen.main else { return }
+    private func buildPanels(screen: NSScreen) {
+        sessionScreen = screen
+        sessionGeometry = AnnotationDisplayGeometry(id: screen.displayID, frame: screen.frame,
+                                                    scale: screen.backingScaleFactor)
         buildCanvasPanel(screen: screen)
         buildToolbarPanel(screen: screen)
+        sessionObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main) { [weak self] _ in
+                guard let self, let geometry = self.sessionGeometry else { return }
+                let displays = NSScreen.screens.map {
+                    AnnotationDisplayGeometry(id: $0.displayID, frame: $0.frame, scale: $0.backingScaleFactor)
+                }
+                guard geometry.isCompatible(with: displays) else {
+                    self.closeSession()
+                    return
+                }
+            })
+        for name in [NSWorkspace.willSleepNotification,
+                     NSWorkspace.screensDidSleepNotification,
+                     NSWorkspace.sessionDidResignActiveNotification,
+                     NSWorkspace.activeSpaceDidChangeNotification] {
+            workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main) { [weak self] _ in
+                    self?.exitDrawingMode()
+                })
+        }
     }
 
 
@@ -151,15 +188,11 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     private func buildToolbarPanel(screen: NSScreen) {
-        let host = NSHostingController(rootView: AnyView(AnnotationToolbarView(service: self)))
+        let host = ScreenAnnotationToolbar.makeController(service: self)
         host.view.layoutSubtreeIfNeeded()
         let size = host.view.fittingSize
 
-        let rect = NSRect(
-            x: screen.frame.midX - size.width / 2,
-            y: screen.frame.minY + 24,
-            width: max(size.width, 300),
-            height: max(size.height, 44))
+        let rect = AnnotationDisplayGeometry.toolbarFrame(size: size, visibleFrame: screen.visibleFrame)
 
         let p = NSPanel(contentRect: rect,
                         styleMask: [.borderless, .nonactivatingPanel],
@@ -180,23 +213,9 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - Show
 
     private func showPanels() {
-        guard let screen = NSScreen.main,
-              let canvas = canvasPanel,
+        guard let canvas = canvasPanel,
               let toolbar = toolbarPanel else { return }
-
-        canvas.setFrame(screen.frame, display: false)
         canvas.orderFrontRegardless()
-
-        if let host = toolbar.contentViewController {
-            host.view.layoutSubtreeIfNeeded()
-            let size = host.view.fittingSize
-            let tb = NSRect(
-                x: screen.frame.midX - size.width / 2,
-                y: screen.frame.minY + 24,
-                width: max(size.width, 300),
-                height: max(size.height, 44))
-            toolbar.setFrame(tb, display: false)
-        }
         toolbar.orderFrontRegardless()
     }
 
@@ -210,7 +229,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                 if event.type == .keyDown {
                     switch Int(event.keyCode) {
                     case kVK_Escape:
-                        self.exitDrawingMode()
+                        if self.drawingView?.dismissTextEditor() != true {
+                            self.exitDrawingMode()
+                        }
+                        return nil
                     default:
                         break
                     }
@@ -218,17 +240,11 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                 }
                 return event
             }
-        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == UInt16(kVK_Escape) else { return }
-            self?.exitDrawingMode()
-        }
     }
 
     private func removeKeyMonitors() {
         if let m = keyMonitor { NSEvent.removeMonitor(m) }
         keyMonitor = nil
-        if let m = globalKeyMonitor { NSEvent.removeMonitor(m) }
-        globalKeyMonitor = nil
     }
 
     // MARK: - Preferences
@@ -355,55 +371,14 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     func syncShortcut() {
         let on = AppFeature.screenAnnotation.isAvailable
             && UserDefaults.standard.bool(forKey: DefaultsKey.screenAnnotationShortcutEnabled)
-        on ? registerShortcut() : unregisterShortcut()
-    }
-
-    private func registerShortcut() {
         let shortcut = GlobalShortcut.saved(for: DefaultsKey.screenAnnotationShortcut,
                                             fallback: .screenAnnotationDefault)
-        if hotKeyRef != nil, registeredShortcut == shortcut { return }
-        unregisterShortcut()
-        if hotKeyHandler == nil {
-            var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
-                                     eventKind: UInt32(kEventHotKeyPressed))
-            InstallEventHandler(
-                GetEventDispatcherTarget(),
-                { _, event, userData -> OSStatus in
-                    guard let userData else { return OSStatus(eventNotHandledErr) }
-                    var id = EventHotKeyID()
-                    if let event {
-                        GetEventParameter(event,
-                                          EventParamName(kEventParamDirectObject),
-                                          EventParamType(typeEventHotKeyID),
-                                          nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
-                    }
-                    guard id.signature == 0x5655_414E, id.id == 7 else {
-                        return OSStatus(eventNotHandledErr)
-                    }
-                    let svc = Unmanaged<ScreenAnnotationService>
-                        .fromOpaque(userData).takeUnretainedValue()
-                    DispatchQueue.main.async { svc.toggleDrawing() }
-                    return noErr
-                },
-                1, &spec, Unmanaged.passUnretained(self).toOpaque(), &hotKeyHandler)
-        }
-        var ref: EventHotKeyRef?
-        let status = RegisterEventHotKey(
-            shortcut.carbonKeyCode, shortcut.carbonModifiers,
-            EventHotKeyID(signature: 0x5655_414E, id: 7),
-            GetEventDispatcherTarget(), 0, &ref)
-        if status == noErr, let ref {
-            hotKeyRef = ref; registeredShortcut = shortcut
-            shortcutRegistrationFailed = false
-        } else {
-            hotKeyRef = nil; registeredShortcut = nil
-            shortcutRegistrationFailed = true
-        }
+        hotkey.onPress = { [weak self] in self?.toggleDrawing() }
+        shortcutRegistrationFailed = !hotkey.sync(enabled: on, shortcut: shortcut)
     }
 
     private func unregisterShortcut() {
-        if let h = hotKeyRef { UnregisterEventHotKey(h) }
-        hotKeyRef = nil; registeredShortcut = nil
+        hotkey.unregister()
         shortcutRegistrationFailed = false
     }
 }
@@ -415,32 +390,6 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
 /// Pattern identical to `ScreenshotOverlayPanel`.
 private final class AnnotationCanvasPanel: NSPanel {
     override var canBecomeKey: Bool { true }
-    
-    /// Route mouse events directly to the drawing view.
-    /// Pattern from Annotate's OverlayWindow: transparent panels may not
-    /// deliver events through the normal responder chain.
-    override func sendEvent(_ event: NSEvent) {
-        switch event.type {
-        case .leftMouseDown, .leftMouseDragged, .leftMouseUp:
-            NSLog("🎯 AnnotationCanvasPanel.sendEvent: \(event.type.rawValue) at \(event.locationInWindow)")
-            NSLog("🎯 contentView type: \(type(of: contentView))")
-            if let view = contentView as? AnnotationDrawingView {
-                NSLog("🎯 Routing to AnnotationDrawingView")
-                switch event.type {
-                case .leftMouseDown:  view.mouseDown(with: event)
-                case .leftMouseDragged: view.mouseDragged(with: event)
-                case .leftMouseUp:    view.mouseUp(with: event)
-                default: break
-                }
-                return
-            } else {
-                NSLog("❌ contentView is NOT AnnotationDrawingView")
-            }
-        default:
-            break
-        }
-        super.sendEvent(event)
-    }
 }
 
 // MARK: - Drawing view
@@ -492,9 +441,23 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
     }
 
     func cancelTextEditor() {
-        textField?.removeFromSuperview()
+        let field = textField
         textField = nil
         textOrigin = nil
+        field?.delegate = nil
+        field?.removeFromSuperview()
+        window?.makeFirstResponder(self)
+    }
+
+    func dismissTextEditor() -> Bool {
+        guard textField != nil else { return false }
+        cancelTextEditor()
+        return true
+    }
+
+    func cancelInteraction() {
+        isDragging = false
+        cancelTextEditor()
     }
 
     @objc private func commitTextEditor() {
@@ -511,11 +474,6 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
     /// Flipped so origin is top-left, matching screen pixels.
     override var isFlipped: Bool { true }
     
-    /// Critical: return self for all points so the view captures all mouse events.
-    /// Without this, a transparent view may let clicks pass through.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        return bounds.contains(point) ? self : nil
-    }
 
     // MARK: Drawing
 
@@ -617,105 +575,5 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
     override func mouseUp(with event: NSEvent) {
         isDragging = false
         needsDisplay = true
-    }
-}
-
-// MARK: - Toolbar (SwiftUI inside NSHostingController, pattern from QuickToolHUD)
-
-private struct AnnotationToolbarView: View {
-    @ObservedObject var service: ScreenAnnotationService
-    @State private var selectedTool: AnnotationTool = .pen
-    @State private var strokeWidth: Double = ScreenAnnotationSupport.defaultWidth
-
-    private let presetColors: [AnnotationColor] = [.red, .orange, .yellow, .green,
-                                                   .blue, .purple, .black, .white]
-    private var strings: ScreenAnnotationStrings { FeatureStrings.annotation(L10n.shared.language) }
-
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 7) {
-                ForEach(AnnotationTool.allCases, id: \.rawValue) { tool in
-                    toolButton(tool)
-                }
-            }
-
-            Divider().frame(width: 420)
-
-            HStack(spacing: 9) {
-                ForEach(Array(presetColors.enumerated()), id: \.offset) { _, c in colorSwatch(c) }
-
-                Divider().frame(height: 20)
-
-                Slider(value: $strokeWidth, in: 1...30)
-                    .frame(width: 90)
-                    .onChange(of: strokeWidth) { _, w in service.setWidth(w) }
-
-                Divider().frame(height: 20)
-
-                Button { service.undo() } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                }
-                .buttonStyle(.borderless)
-                .help(strings.undo)
-                Button { service.clearAll() } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.borderless)
-                .help(strings.clear)
-
-                Divider().frame(height: 20)
-
-                Button { service.hideOverlay() } label: {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(.borderless)
-                .help(strings.exit)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .background(.regularMaterial,
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .onAppear {
-            selectedTool = service.tool
-            strokeWidth  = service.width
-        }
-    }
-
-    private func toolButton(_ t: AnnotationTool) -> some View {
-        Button { service.setTool(t); selectedTool = t } label: {
-            Image(systemName: toolSymbol(t))
-                .frame(width: 27, height: 25)
-        }
-            .buttonStyle(.borderless)
-            .background(selectedTool == t ? Color.accentColor.opacity(0.22) : .clear,
-                        in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .foregroundStyle(selectedTool == t ? Color.accentColor : Color.primary)
-            .help(t.rawValue.capitalized)
-    }
-
-    private func toolSymbol(_ tool: AnnotationTool) -> String {
-        switch tool {
-        case .select: return "cursorarrow"
-        case .pen: return "pencil"
-        case .highlighter: return "highlighter"
-        case .arrow: return "arrow.up.right"
-        case .line: return "line.diagonal"
-        case .rectangle: return "rectangle"
-        case .ellipse: return "circle"
-        case .text: return "textformat"
-        case .eraser: return "eraser"
-        case .redact: return "rectangle.fill"
-        }
-    }
-
-    private func colorSwatch(_ c: AnnotationColor) -> some View {
-        Circle()
-            .fill(Color(red: c.red, green: c.green, blue: c.blue))
-            .frame(width: 18, height: 18)
-            .overlay(Circle().strokeBorder(
-                service.color == c ? Color.primary : Color.clear,
-                lineWidth: 2.5))
-            .onTapGesture { service.setColor(c) }
     }
 }

@@ -42,6 +42,25 @@ struct MetricsTests {
 
         // MARK: Screen annotation rules
 
+        let annotationDisplay = AnnotationDisplayGeometry(
+            id: 1, frame: CGRect(x: -1920, y: -1080, width: 1920, height: 1080), scale: 2)
+        expect(annotationDisplay.isCompatible(with: [annotationDisplay]),
+               "annotation session stays on its invoking display")
+        expect(!annotationDisplay.isCompatible(with: []), "removed annotation display ends session")
+        expect(!annotationDisplay.isCompatible(with: [
+            AnnotationDisplayGeometry(id: 1, frame: annotationDisplay.frame, scale: 1)
+        ]), "annotation backing scale changes invalidate session")
+        expect(!annotationDisplay.isCompatible(with: [
+            AnnotationDisplayGeometry(id: 2, frame: annotationDisplay.frame, scale: 2)
+        ]), "identical geometry on a replacement display does not move annotations")
+        let annotationToolbar = AnnotationDisplayGeometry.toolbarFrame(
+            size: CGSize(width: 440, height: 130), visibleFrame: annotationDisplay.frame)
+        expect(annotationDisplay.frame.contains(annotationToolbar),
+               "annotation toolbar fits negative-origin owner display")
+        expect(AnnotationDisplayGeometry.toolbarFrame(
+            size: CGSize(width: 4000, height: 4000), visibleFrame: annotationDisplay.frame)
+            == annotationDisplay.frame, "oversized annotation toolbar remains on owner display")
+
         let rawPoints = (0..<(ScreenAnnotationSupport.maxPointsPerStroke + 20))
             .map { AnnotationPoint(x: Double($0), y: Double($0)) }
         let boundedStroke = AnnotationStroke(tool: .pen, color: .red, width: 100, points: rawPoints)

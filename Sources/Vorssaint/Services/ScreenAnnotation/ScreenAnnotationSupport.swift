@@ -2,6 +2,25 @@
 // Copyright (C) 2026 Vorssaint
 
 import Foundation
+import CoreGraphics
+
+struct AnnotationDisplayGeometry: Equatable {
+    let id: UInt32
+    let frame: CGRect
+    let scale: CGFloat
+
+    func isCompatible(with displays: [AnnotationDisplayGeometry]) -> Bool {
+        id != 0 && displays.contains(self)
+    }
+
+    static func toolbarFrame(size: CGSize, visibleFrame: CGRect) -> CGRect {
+        let width = min(max(size.width, 300), visibleFrame.width)
+        let height = min(max(size.height, 44), visibleFrame.height)
+        return CGRect(x: visibleFrame.midX - width / 2,
+                      y: min(visibleFrame.minY + 24, visibleFrame.maxY - height),
+                      width: width, height: height)
+    }
+}
 
 struct AnnotationPoint: Codable, Equatable {
     let x: Double
