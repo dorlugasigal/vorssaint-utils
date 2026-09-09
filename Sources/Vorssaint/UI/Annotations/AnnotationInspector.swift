@@ -105,6 +105,18 @@ struct AnnotationInspector: View {
                     .frame(width: 150)
                 }
             }
+            if tool == .freehand {
+                let labels = AnnotationInputStrings.labels(localization.language)
+                HStack {
+                    Picker(labels[0], selection: $style.pressure) {
+                        ForEach(AnnotationStyle.Pressure.allCases, id: \.rawValue) { pressure in
+                            Text(labels[pressure.rawValue + 1]).tag(pressure)
+                        }
+                    }
+                    .frame(width: 190)
+                    Toggle(labels[4], isOn: $style.smooth)
+                }
+            }
         }
     }
 }
