@@ -16,6 +16,23 @@ enum AnnotationHostSelfTest {
               let image = context.makeImage() else { return ["annotation host: fixture creation"] }
         defer { defaults.removePersistentDomain(forName: suite) }
         failures.append(contentsOf: ScreenAnnotationService.runDataSelfTest(defaults: defaults))
+        for tool in [ScreenshotSupport.Tool.select, .text] {
+            let clicks = ScreenshotEditorModel(image: image, scale: 1, defaults: defaults)
+            clicks.tool = .text
+            clicks.beginDrag(at: CGPoint(x: 30, y: 30))
+            clicks.endDrag(at: CGPoint(x: 30, y: 30), isTap: true)
+            guard let id = clicks.editingTextID else { return failures + ["annotation host: text click fixture"] }
+            clicks.commitText(id, text: "Edit this text")
+            clicks.tool = tool
+            if tool == .select { clicks.selectedID = nil }
+            let rect = clicks.annotations[0].rect
+            let point = CGPoint(x: rect.midX, y: rect.midY)
+            clicks.beginDrag(at: point)
+            clicks.continueDrag(to: point)
+            clicks.endDrag(at: point, isTap: true)
+            expect(clicks.editingTextID == id, "stationary first pointer event reopens text with \(tool)")
+            clicks.cancelActiveEdit()
+        }
         let model = ScreenshotEditorModel(image: image, scale: 1, defaults: defaults)
         expect(!model.smartDrawEnabled, "Smart Draw defaults off")
         model.tool = .arrow

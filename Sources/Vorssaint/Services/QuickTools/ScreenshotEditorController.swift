@@ -800,6 +800,9 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         guard let selectedID,
               let index = annotations.firstIndex(where: { $0.id == selectedID })
         else { return }
+        if !dragRegistered && point == dragStart {
+            guard let annotationGesture, case .midpoint = annotationGesture.handle else { return }
+        }
         if !dragRegistered {
             registerUndo()
             dragRegistered = true
