@@ -11,20 +11,78 @@ struct AnnotationInspector: View {
     var editPoints: (Bool) -> Void = { _ in }
     var smartDraw: Binding<Bool> = .constant(false)
     var allowsHighlighter = false
+    var showsStrokeColor = true
+    var layoutChanged: () -> Void = {}
+    @State private var expanded = false
     @ObservedObject private var localization = L10n.shared
 
     private var strings: ScreenshotFeatureStrings { FeatureStrings.screenshot(localization.language) }
 
     var body: some View {
         VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                if showsStrokeColor {
+                    AnnotationColorControl(color: $style.color, editingChanged: editingChanged)
+                        .frame(width: 32, height: 28)
+                        .help(strings.colorLabel)
+                }
+                if tool != .text {
+                    AnnotationVisualChoices(values: style.isHighlighter ? [CGFloat(10), 18, 28] : [CGFloat(2), 4, 7],
+                        selection: $style.width,
+                        label: { "\(strings.strokeLabel): \($0.formatted())" }, preview: { .width($0) })
+                } else {
+                    let labels = AnnotationTextStrings.labels(localization.language)
+                    Picker(labels[0], selection: $style.fontFamily) {
+                        ForEach(AnnotationStyle.FontFamily.allCases, id: \.rawValue) { family in
+                            Text(labels[family.rawValue + 1]).tag(family)
+                        }
+                    }.frame(width: 160)
+                    Toggle(isOn: $style.boldText) { Image(systemName: "bold") }
+                        .toggleStyle(.button).help(labels[6]).accessibilityLabel(labels[6])
+                }
+                if tool != .text && !style.isHighlighter {
+                    AnnotationVisualChoices(values: AnnotationStyle.Pattern.allCases, selection: $style.pattern,
+                        label: { AnnotationStyleStrings.patternName($0, localization.language) },
+                        preview: { .pattern($0) })
+                    let characters = AnnotationStyleStrings.characters(localization.language)
+                    AnnotationVisualChoices(values: AnnotationStyle.Character.allCases, selection: $style.character,
+                        label: { characters[$0.rawValue + 1] }, preview: { .character($0) })
+                }
+            }
+            if tool == .ellipse || (tool == .rect && style.shape != .axes) {
+                HStack(spacing: 10) {
+                    AnnotationVisualChoices(values: AnnotationStyle.Fill.allCases, selection: $style.fill,
+                        label: { AnnotationStyleStrings.fillName($0, localization.language) },
+                        preview: { .fill($0) })
+                    AnnotationColorControl(color: $style.fillColor, editingChanged: editingChanged)
+                        .frame(width: 32, height: 28)
+                        .help(AnnotationStyleStrings.fill(localization.language))
+                }
+            }
+            if tool == .line || tool == .arrow {
+                let labels = AnnotationLinearStrings.labels(localization.language)
+                HStack(spacing: 10) {
+                    AnnotationVisualChoices(values: [false, true], selection: $style.curved,
+                        label: { $0 ? labels[14] : strings.toolLine }, preview: { .route(curved: $0) })
+                    AnnotationArrowheadChoice(selection: $style.startHead, isStart: true, label: labels[16])
+                    AnnotationArrowheadChoice(selection: $style.endHead, isStart: false, label: labels[17])
+                }
+            }
+            DisclosureGroup(isExpanded: $expanded) {
+                advancedControls.padding(.top, 8)
+            } label: {
+                Label(AnnotationSessionStrings.moreOptions(localization.language), systemImage: "slider.horizontal.3")
+                    .font(.caption)
+            }
+        }
+        .onChange(of: expanded) { _, _ in layoutChanged() }
+        .onChange(of: tool) { _, _ in expanded = false }
+    }
+
+    private var advancedControls: some View {
+        VStack(spacing: 8) {
             HStack(spacing: 12) {
-            AnnotationColorControl(color: Binding(get: { style.color }, set: { style.color = $0 }),
-                                   editingChanged: editingChanged)
-                .frame(width: 32, height: 24)
-                .help(strings.colorLabel)
-            AnnotationVisualChoices(values: [CGFloat(2), 4, 7], selection: $style.width,
-                label: { "\(strings.strokeLabel): \($0.formatted())" },
-                preview: { .width($0) })
+            Image(systemName: "lineweight").help(strings.strokeLabel)
             Slider(value: $style.width, in: 1...40, onEditingChanged: editingChanged)
                 .frame(width: 60)
                 .accessibilityLabel(strings.strokeLabel)
@@ -32,29 +90,6 @@ struct AnnotationInspector: View {
             Slider(value: $style.opacity, in: 0...1, onEditingChanged: editingChanged)
                 .frame(width: 85)
                 .accessibilityLabel(AnnotationSessionStrings.opacity(localization.language))
-            }
-            if tool == .rect || tool == .ellipse || tool == .line || tool == .arrow || (tool == .freehand && !style.isHighlighter) {
-                let characters = AnnotationStyleStrings.characters(localization.language)
-                Picker(characters[0], selection: $style.character) {
-                    ForEach(AnnotationStyle.Character.allCases, id: \.rawValue) { character in
-                        Text(characters[character.rawValue + 1]).tag(character)
-                    }
-                }
-                .frame(width: 210)
-                HStack(spacing: 10) {
-                    AnnotationVisualChoices(values: AnnotationStyle.Pattern.allCases, selection: $style.pattern,
-                        label: { AnnotationStyleStrings.patternName($0, localization.language) },
-                        preview: { .pattern($0) })
-                    if tool == .ellipse || (tool == .rect && style.shape != .axes) {
-                        Divider().frame(height: 24)
-                        AnnotationVisualChoices(values: AnnotationStyle.Fill.allCases, selection: $style.fill,
-                            label: { AnnotationStyleStrings.fillName($0, localization.language) },
-                            preview: { .fill($0) })
-                        AnnotationColorControl(color: $style.fillColor, editingChanged: editingChanged)
-                            .frame(width: 32, height: 24)
-                            .help(AnnotationStyleStrings.fill(localization.language))
-                    }
-                }
             }
             if tool == .rect {
                 HStack {
@@ -80,27 +115,11 @@ struct AnnotationInspector: View {
                 }
                 if style.shape == .axes {
                     Toggle(AnnotationDiagramStrings.labels(localization.language)[7], isOn: $style.axisTicks)
+                    Toggle(AnnotationSessionStrings.negativeAxes(localization.language), isOn: $style.axisNegative)
                 }
             }
             if tool == .line || tool == .arrow {
                 let labels = AnnotationLinearStrings.labels(localization.language)
-                HStack {
-                    AnnotationVisualChoices(values: [false, true], selection: $style.curved,
-                        label: { $0 ? labels[14] : strings.toolLine },
-                        preview: { .route(curved: $0) })
-                    Toggle(isOn: $style.multiClick) {
-                        Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
-                    }
-                    .toggleStyle(.button)
-                    .help(labels[15])
-                    .accessibilityLabel(labels[15])
-                    Button { editPoints(true) } label: { Image(systemName: "plus.circle") }.help(labels[19])
-                    Button { editPoints(false) } label: { Image(systemName: "minus.circle") }.help(labels[20])
-                }
-                HStack {
-                    AnnotationArrowheadChoice(selection: $style.startHead, isStart: true, label: labels[16])
-                    AnnotationArrowheadChoice(selection: $style.endHead, isStart: false, label: labels[17])
-                }
                 HStack {
                     AnnotationVisualChoices(values: [CGFloat(0.75), 1, 1.5], selection: $style.headSize,
                         label: { "\(labels[18]): \(Double($0).formatted(.percent.precision(.fractionLength(0))))" },
@@ -112,7 +131,6 @@ struct AnnotationInspector: View {
                         .font(.caption.monospacedDigit())
                         .frame(width: 42)
                 }
-                Toggle(AnnotationLinearStrings.bindings(localization.language), isOn: $style.bindEndpoints)
             }
             if tool == .text {
                 let labels = AnnotationTextStrings.labels(localization.language)
@@ -188,7 +206,7 @@ struct AnnotationInspector: View {
     }
 }
 
-private struct AnnotationColorControl: NSViewRepresentable {
+struct AnnotationColorControl: NSViewRepresentable {
     @Binding var color: AnnotationColor
     var editingChanged: (Bool) -> Void
 
@@ -201,12 +219,14 @@ private struct AnnotationColorControl: NSViewRepresentable {
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.control = self
         let swatchColor = AnnotationRenderer.color(AnnotationStyle(color: color, width: 1))
-        button.image = NSImage(size: NSSize(width: 24, height: 16), flipped: false) { rect in
+        let luminance = (0.2126 * color.red + 0.7152 * color.green + 0.0722 * color.blue) * color.alpha
+            + 0.85 * (1 - color.alpha)
+        button.image = NSImage(size: NSSize(width: 24, height: 20), flipped: false) { rect in
             NSGraphicsContext.saveGraphicsState()
             defer { NSGraphicsContext.restoreGraphicsState() }
             let outline = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3)
             outline.addClip()
-            for row in 0..<2 {
+            for row in 0..<3 {
                 for column in 0..<3 {
                     ((row + column).isMultiple(of: 2) ? NSColor.white : NSColor.lightGray).setFill()
                     NSRect(x: CGFloat(column) * 8, y: CGFloat(row) * 8, width: 8, height: 8).fill()
@@ -217,6 +237,10 @@ private struct AnnotationColorControl: NSViewRepresentable {
             NSColor.separatorColor.setStroke()
             outline.lineWidth = 1
             outline.stroke()
+            let ink: NSColor = luminance > 0.5 ? .black : .white
+            NSImage(systemSymbolName: "paintpalette.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [ink]))?
+                .draw(in: rect.insetBy(dx: 3, dy: 2))
             return true
         }
     }

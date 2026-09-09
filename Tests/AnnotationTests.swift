@@ -513,12 +513,30 @@ enum AnnotationTests {
         axes.axisTicks = false
         let plain = AnnotationDiagramGeometry.path(in: bounds, style: axes)
         expect(ticked != plain, "axis ticks can be disabled without changing the axes tool")
+        axes.axisNegative = true
+        let negative = AnnotationDiagramGeometry.path(in: bounds, style: axes)
+        let axesPixels = bitmap { context in
+            AnnotationRenderer.draw(AnnotationElement(tool: .rect, rect: bounds, style: axes.sanitized()),
+                                    in: context, scale: 1, shadowsEnabled: false)
+        }
+        expect(axesPixels?.dropFirst((50 * 200 + 65) * 4).prefix(4).allSatisfy { $0 == 0 } == true,
+               "negative axes leave quadrant interiors transparent in the actual renderer")
+        expect(negative.boundingBoxOfPath == bounds,
+               "negative axes extend across all four quadrants of the shape")
+        expect(AnnotationStyle(color: .red, width: 3).bindEndpoints,
+               "nearby endpoint binding is enabled without an opt-in checkbox")
+        for action in AnnotationSelectionAction.allCases {
+            expect(NSImage(systemSymbolName: action.symbolName, accessibilityDescription: nil) != nil,
+                   "\(action) selection command has a supported icon")
+        }
         for language in AppLanguage.allCases {
             expect(AnnotationDiagramStrings.labels(language).count == 8, "diagram controls localized for \(language)")
         }
     }
 
     private static func testToolShortcuts(_ expect: (Bool, String) -> Void) {
+        expect(GlobalShortcut.screenAnnotationDefault.storageValue == "control:19",
+               "screen annotation defaults to Control-2")
         for entry in AnnotationToolShortcuts.entries {
             for key in entry.keys {
                 let shift = key == "Shift-E"
@@ -554,6 +572,7 @@ enum AnnotationTests {
             AnnotationStyle.Pattern.allCases.map { .pattern($0) },
             [CGFloat(2), 4, 7].map { .width($0) },
             AnnotationStyle.Shape.allCases.map { .shape($0) },
+            AnnotationStyle.Character.allCases.map { .character($0) },
             [CGFloat(0.75), 1, 1.5].map { .headSize($0) },
             [.route(curved: false), .route(curved: true)]
         ]

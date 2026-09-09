@@ -23,7 +23,10 @@ private struct AnnotationToolbarView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 4) {
-                ForEach(AnnotationToolShortcuts.entries, id: \.choice) { entry in
+                ForEach(AnnotationToolShortcuts.entries.filter {
+                    if case .shape(let shape) = $0.choice { return !shape.isDiagram }
+                    return true
+                }, id: \.choice) { entry in
                     Button { service.setToolChoice(entry.choice) } label: {
                         VStack(spacing: 2) {
                             Image(systemName: toolSymbol(entry.choice)).frame(height: 21)
@@ -40,6 +43,10 @@ private struct AnnotationToolbarView: View {
                     .accessibilityLabel(toolTitle(entry.choice))
                     .accessibilityAddTraits(service.toolChoice == entry.choice ? .isSelected : [])
                 }
+                AnnotationDiagramMenu(
+                    selected: service.tool == .rectangle && service.inspectorStyle.shape.isDiagram
+                        ? service.inspectorStyle.shape : nil,
+                    select: { service.setToolChoice(.shape($0)) })
             }
             Divider()
             HStack(spacing: 9) {
@@ -53,6 +60,10 @@ private struct AnnotationToolbarView: View {
                     }
                     .buttonStyle(.borderless)
                 }
+                AnnotationColorControl(color: Binding(get: { service.inspectorStyle.color }, set: service.setColor),
+                                       editingChanged: service.styleEditingChanged)
+                    .frame(width: 32, height: 28)
+                    .help(FeatureStrings.screenshot(localization.language).colorLabel)
                 Divider().frame(height: 20)
                 Button { service.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .help(strings.undo)
@@ -66,7 +77,8 @@ private struct AnnotationToolbarView: View {
             }
             AnnotationInspector(style: Binding(get: { service.inspectorStyle }, set: service.setInspectorStyle),
                                 editingChanged: service.styleEditingChanged, tool: service.inspectorTool,
-                                editPoints: service.editLinearPoints, smartDraw: $service.smartDrawEnabled)
+                                editPoints: service.editLinearPoints, smartDraw: $service.smartDrawEnabled,
+                                showsStrokeColor: false, layoutChanged: service.scheduleToolbarLayout)
             HStack {
                 if service.hasLinearConstruction {
                     Button(FeatureStrings.screenshot(localization.language).done, action: service.finishLinearConstruction)

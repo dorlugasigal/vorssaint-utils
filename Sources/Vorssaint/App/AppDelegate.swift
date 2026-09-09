@@ -1226,7 +1226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     @objc private func menuToggleScreenAnnotation() {
-        ScreenAnnotationService.shared.toggleDrawing()
+        ScreenAnnotationService.shared.toggleOverlay()
     }
 
     @objc private func menuClearScreenAnnotation() {

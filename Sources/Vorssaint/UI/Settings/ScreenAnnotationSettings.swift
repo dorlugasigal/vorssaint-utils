@@ -17,7 +17,7 @@ struct ScreenAnnotationSettings: View {
         Form {
             Section {
                 Button {
-                    ScreenAnnotationService.shared.toggleDrawing()
+                    ScreenAnnotationService.shared.openOverlay()
                 } label: {
                     Label(strings.openOverlay, systemImage: "pencil.and.outline")
                 }

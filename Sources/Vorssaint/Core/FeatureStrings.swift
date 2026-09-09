@@ -155,7 +155,7 @@ struct ScreenAnnotationStrings {
         self.controls = controls
     }
 
-    var shortcutLabel: String { "⌃⌥⌘A" }
+    var shortcutLabel: String { "⌃2" }
 
     static let enUS = ScreenAnnotationStrings(title: "Screen annotation", pen: "Pen", highlighter: "Highlighter", undo: "Undo", clear: "Clear", exit: "Exit", openOverlay: "Open overlay", settingsDescription: "The overlay stays available while this feature is installed. Use the toolbar to choose the tool, color, and width.", penDescription: "Freehand stroke", highlighterDescription: "Semi-transparent stroke", undoDescription: "Removes the last stroke", clearDescription: "Removes all strokes")
     static let ptBR = ScreenAnnotationStrings(title: "Anotação de tela", pen: "Caneta", highlighter: "Marca-texto", undo: "Desfazer", clear: "Limpar", exit: "Sair", openOverlay: "Abrir overlay", settingsDescription: "O overlay permanece disponível enquanto o recurso estiver instalado. Use a barra para escolher ferramenta, cor e espessura.", penDescription: "Traço livre", highlighterDescription: "Traço semitransparente", undoDescription: "Remove o último traço", clearDescription: "Remove todos os traços", controls: "Controles")

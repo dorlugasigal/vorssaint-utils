@@ -53,6 +53,22 @@ enum AnnotationDiagramGeometry {
                 line(point(x, 0), point(x, 1))
             }
         case .axes:
+            if style.axisNegative {
+                line(point(0, 0.5), point(1, 0.5))
+                line(point(0.5, 1), point(0.5, 0))
+                line(point(0.42, 0.10), point(0.5, 0))
+                path.addLine(to: point(0.58, 0.10))
+                line(point(0.90, 0.42), point(1, 0.5))
+                path.addLine(to: point(0.90, 0.58))
+                if style.axisTicks {
+                    for tick in [-4, -3, -2, -1, 1, 2, 3, 4] {
+                        let offset = CGFloat(tick) * 0.1
+                        line(point(0.5 + offset, 0.47), point(0.5 + offset, 0.53))
+                        line(point(0.47, 0.5 + offset), point(0.53, 0.5 + offset))
+                    }
+                }
+                break
+            }
             let origin = point(0.12, 0.88)
             let top = point(0.12, 0), right = point(1, 0.88)
             line(top, origin)

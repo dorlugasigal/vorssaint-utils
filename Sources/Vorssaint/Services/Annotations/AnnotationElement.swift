@@ -99,12 +99,13 @@ struct AnnotationStyle: Equatable {
     var gridRows = 4
     var gridColumns = 4
     var axisTicks = true
+    var axisNegative = false
     var curved = false
     var multiClick = false
     var startHead: AnnotationArrowhead = .none
     var endHead: AnnotationArrowhead = .legacy
     var headSize: CGFloat = 1
-    var bindEndpoints = false
+    var bindEndpoints = true
     var fontFamily: FontFamily = .system
     var textAlignment: Alignment = .left
     var boldText = false

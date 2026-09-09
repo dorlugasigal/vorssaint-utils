@@ -616,7 +616,7 @@ struct ScreenshotEditorView: View {
                 railButton(tool)
             }
             Divider().frame(width: 22)
-            ForEach(AnnotationStyle.Shape.allCases.filter { $0 != .standard }, id: \.rawValue) { shape in
+            ForEach([AnnotationStyle.Shape.diamond], id: \.rawValue) { shape in
                 Button {
                     commitEditingTextIfNeeded()
                     model.selectShape(shape)
@@ -633,6 +633,11 @@ struct ScreenshotEditorView: View {
                     + (shape.isDiagram && toolShortcutsEnabled
                        ? AnnotationToolShortcuts.hint(for: .shape(shape)).map { " (\($0))" } ?? "" : ""))
                 .accessibilityLabel(AnnotationDiagramStrings.title(shape, l10n.language))
+            }
+            AnnotationDiagramMenu(selected: model.tool == .rect && model.inspectorStyle.shape.isDiagram
+                                  ? model.inspectorStyle.shape : nil) { shape in
+                commitEditingTextIfNeeded()
+                model.selectShape(shape)
             }
             Divider()
                 .frame(width: 22)

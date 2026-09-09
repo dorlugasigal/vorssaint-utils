@@ -220,9 +220,8 @@ struct GlobalShortcut: Equatable, Hashable {
     // layer, matching how the system numbers its own capture keys.
     static let screenRecorderDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_5),
                                                       modifiers: [.control, .option, .command])
-    // A for Annotation, on the same free control-option-command layer.
-    static let screenAnnotationDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_A),
-                                                        modifiers: [.control, .option, .command])
+    static let screenAnnotationDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_2),
+                                                        modifiers: [.control])
 
     static func saved(for key: String, fallback: GlobalShortcut) -> GlobalShortcut {
         if let raw = UserDefaults.standard.string(forKey: key),

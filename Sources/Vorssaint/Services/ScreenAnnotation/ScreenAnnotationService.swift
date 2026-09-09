@@ -100,6 +100,14 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     // Entry point from menu / shortcut
+    @objc func toggleOverlay() {
+        if canvasPanel != nil { closeSession() } else { toggleDrawing() }
+    }
+
+    func openOverlay() {
+        if !isDrawingActive { toggleDrawing() }
+    }
+
     @objc func toggleDrawing() {
         guard AppFeature.screenAnnotation.isAvailable else { return }
         if canvasPanel == nil {
@@ -336,6 +344,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         if toolbar.frame != frame { toolbar.setFrame(frame, display: true) }
     }
 
+    func scheduleToolbarLayout() {
+        DispatchQueue.main.async { [weak self] in self?.fitToolbar() }
+    }
+
     // MARK: - Key monitors (pattern from ScreenshotSelectionController)
 
     private func installKeyMonitors() {
@@ -409,6 +421,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         tool = t
         drawingView?.refreshCursor()
         UserDefaults.standard.set(t.rawValue, forKey: DefaultsKey.screenAnnotationTool)
+        if canvasPanel != nil && !isDrawingActive { enterDrawingMode() }
         DispatchQueue.main.async { [weak self] in self?.fitToolbar() }
     }
 
@@ -749,7 +762,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
             && UserDefaults.standard.bool(forKey: DefaultsKey.screenAnnotationShortcutEnabled)
         let shortcut = GlobalShortcut.saved(for: DefaultsKey.screenAnnotationShortcut,
                                             fallback: .screenAnnotationDefault)
-        hotkey.onPress = { [weak self] in self?.toggleDrawing() }
+        hotkey.onPress = { [weak self] in self?.toggleOverlay() }
         shortcutRegistrationFailed = !hotkey.sync(enabled: on, shortcut: shortcut)
     }
 
@@ -878,6 +891,7 @@ private final class AnnotationDrawingView: NSView {
     override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
 
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     /// Flipped so origin is top-left, matching screen pixels.
     override var isFlipped: Bool { true }
     
@@ -941,6 +955,8 @@ private final class AnnotationDrawingView: NSView {
                                   action: #selector(selectionAction(_:)), keyEquivalent: "")
             item.target = self
             item.tag = action.rawValue
+            item.image = NSImage(systemSymbolName: action.symbolName, accessibilityDescription: item.title)
+            item.image?.size = NSSize(width: 16, height: 16)
             item.isEnabled = action == .selectAll || !service.selectedIDs.isEmpty
             menu.addItem(item)
         }

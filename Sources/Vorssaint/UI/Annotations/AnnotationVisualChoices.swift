@@ -61,6 +61,9 @@ struct AnnotationArrowheadChoice: View {
     var label: String
     @ObservedObject private var localization = L10n.shared
     @State private var isPresented = false
+    @State private var showsAdvanced = false
+
+    private let common: [AnnotationArrowhead] = [.none, .arrow, .triangle, .triangleOutline]
 
     var body: some View {
         Button { isPresented.toggle() } label: {
@@ -73,26 +76,37 @@ struct AnnotationArrowheadChoice: View {
         .help("\(label): \(AnnotationLinearStrings.head(selection, localization.language))")
         .accessibilityLabel(label)
         .accessibilityValue(AnnotationLinearStrings.head(selection, localization.language))
+        .onChange(of: isPresented) { _, presented in
+            if !presented { showsAdvanced = false }
+        }
         .popover(isPresented: $isPresented) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(label).font(.caption).foregroundStyle(.secondary)
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(38), spacing: 6), count: 4), spacing: 6) {
-                    ForEach(AnnotationArrowhead.allCases, id: \.rawValue) { head in
-                        Button {
-                            selection = head
-                            isPresented = false
-                        } label: {
-                            AnnotationPreviewTile(preview: .head(head, start: isStart),
-                                                  isSelected: selection == head)
-                        }
-                        .buttonStyle(.plain)
-                        .help(AnnotationLinearStrings.head(head, localization.language))
-                        .accessibilityLabel(AnnotationLinearStrings.head(head, localization.language))
-                        .accessibilityAddTraits(selection == head ? .isSelected : [])
+                headGrid(common)
+                DisclosureGroup(AnnotationSessionStrings.moreOptions(localization.language), isExpanded: $showsAdvanced) {
+                    headGrid(AnnotationArrowhead.allCases.filter { $0 != .legacy && !common.contains($0) })
+                        .padding(.top, 8)
                     }
-                }
+                    .font(.caption)
             }
             .padding(12)
+        }
+    }
+
+    private func headGrid(_ heads: [AnnotationArrowhead]) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(38), spacing: 6), count: 4), spacing: 6) {
+            ForEach(heads, id: \.rawValue) { head in
+                Button {
+                    selection = head
+                    isPresented = false
+                } label: {
+                    AnnotationPreviewTile(preview: .head(head, start: isStart), isSelected: selection == head)
+                }
+                .buttonStyle(.plain)
+                .help(AnnotationLinearStrings.head(head, localization.language))
+                .accessibilityLabel(AnnotationLinearStrings.head(head, localization.language))
+                .accessibilityAddTraits(selection == head ? .isSelected : [])
+            }
         }
     }
 }

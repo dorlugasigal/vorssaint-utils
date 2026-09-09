@@ -11,6 +11,7 @@ enum AnnotationControlPreview {
     case route(curved: Bool)
     case head(AnnotationArrowhead, start: Bool)
     case headSize(CGFloat)
+    case character(AnnotationStyle.Character)
 
     func draw(in context: CGContext, color: AnnotationColor) {
         // Fixed logical dimensions keep production arrowhead metrics legible
@@ -20,9 +21,12 @@ enum AnnotationControlPreview {
         style.endHead = .none
         var element = AnnotationElement(tool: .rect,
             rect: CGRect(x: 20, y: 20, width: 80, height: 80), style: style)
+        element.roughSeed = 42
         switch self {
         case .fill(let fill):
             style.fill = fill
+        case .character(let character):
+            style.character = character
         case .pattern(let pattern):
             style.width = 3
             style.pattern = pattern

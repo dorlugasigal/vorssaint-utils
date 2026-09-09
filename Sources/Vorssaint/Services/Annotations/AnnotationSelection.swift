@@ -7,6 +7,26 @@ import Foundation
 enum AnnotationSelectionAction: Int, CaseIterable {
     case selectAll, duplicate, delete, group, ungroup, lock, unlock
     case forward, backward, front, back, rotateLeft, rotateRight, grow, shrink
+
+    var symbolName: String {
+        switch self {
+        case .selectAll: return "checkmark.square"
+        case .duplicate: return "plus.square.on.square"
+        case .delete: return "trash"
+        case .group: return "square.on.square"
+        case .ungroup: return "square.dashed"
+        case .lock: return "lock"
+        case .unlock: return "lock.open"
+        case .forward: return "arrow.up"
+        case .backward: return "arrow.down"
+        case .front: return "arrow.up.to.line"
+        case .back: return "arrow.down.to.line"
+        case .rotateLeft: return "rotate.left"
+        case .rotateRight: return "rotate.right"
+        case .grow: return "arrow.up.left.and.arrow.down.right"
+        case .shrink: return "arrow.down.right.and.arrow.up.left"
+        }
+    }
 }
 
 enum AnnotationSelection {

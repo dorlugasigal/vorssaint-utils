@@ -31,7 +31,9 @@ struct AnnotationSelectionCommands: View {
             if action == .delete || action == .group || action == .forward || action == .rotateLeft {
                 Divider()
             }
-            Button(AnnotationCommandStrings.title(action, localization.language)) { perform(action) }
+            Button { perform(action) } label: {
+                Label(AnnotationCommandStrings.title(action, localization.language), systemImage: action.symbolName)
+            }
                 .disabled(action != .selectAll && !hasSelection)
         }
     }
