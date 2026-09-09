@@ -152,7 +152,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
 
     func styleEditingChanged(_ editing: Bool) {
         if editing { history.begin(snapshot) } else {
-            history.commit(snapshot)
+            if editingTextID == nil { history.commit(snapshot) }
             refreshUndoFlags()
             refreshDirtyState()
         }
@@ -710,7 +710,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
         defer {
             AnnotationBindings.finishEdit(selectedIDs.union(Set(draftID.map { [$0] } ?? [])),
                                           elements: &annotations, tolerance: 14 * scale)
-            history.commit(snapshot)
+            if editingTextID == nil { history.commit(snapshot) }
             refreshUndoFlags()
             refreshDirtyState()
             annotationGesture = nil
@@ -737,7 +737,7 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
             if selectExistingAnnotation(at: point) { return }
             registerUndo()
             var annotation = ScreenshotSupport.Annotation(
-                tool: .text, color: color, stroke: stroke)
+                tool: .text, color: color, stroke: stroke, style: annotationStyleDefaults)
             annotation.rect = ScreenshotRenderer.textBounds("", at: point, stroke: stroke, scale: scale)
             annotations.append(annotation)
             newTextID = annotation.id
@@ -936,38 +936,24 @@ final class ScreenshotEditorModel: ObservableObject, BackdropEditing {
 
     func commitText(_ id: UUID, text: String) {
         guard let index = annotations.firstIndex(where: { $0.id == id && !$0.isLocked }) else { return }
+        history.begin(snapshot)
         editingTextID = nil
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isNew = newTextID == id
-        if isNew, trimmed.isEmpty {
+        if text.isEmpty {
             annotations.remove(at: index)
             if selectedID == id { selectedID = nil }
-            while let last = history.lastUndo,
-                  last.annotations.contains(where: { $0.id == id }) {
-                history.discardLastCheckpoint()
-            }
-            history.discardLastCheckpoint()
-            newTextID = nil
-            refreshUndoFlags()
-            refreshDirtyState()
-            return
+        } else {
+            annotations[index].text = text
+            annotations[index].rect = AnnotationRenderer.textBounds(annotations[index], scale: scale)
         }
-        guard annotations[index].text != trimmed else {
-            newTextID = nil
-            return
-        }
-        if !isNew { registerUndo() }
-        guard !trimmed.isEmpty else {
-            annotations.remove(at: index)
-            if selectedID == id { selectedID = nil }
-            return
-        }
-        annotations[index].text = trimmed
-        annotations[index].rect = ScreenshotRenderer.textBounds(
-            trimmed,
-            at: annotations[index].rect.origin,
-            stroke: annotations[index].stroke,
-            scale: scale)
+        newTextID = nil
+        history.commit(snapshot)
+        refreshUndoFlags()
+        refreshDirtyState()
+    }
+
+    func cancelTextEditing() {
+        if let original = history.cancel() { restore(original) }
+        editingTextID = nil
         newTextID = nil
     }
 

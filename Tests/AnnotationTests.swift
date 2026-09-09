@@ -10,6 +10,7 @@ enum AnnotationTests {
         testShapeStyles(expect)
         testLinear(expect)
         testBindings(expect)
+        testText(expect)
         let visible = CGRect(x: -1920, y: 1080, width: 1920, height: 1050)
         for anchor in [CGRect(x: -1900, y: 1100, width: 50, height: 50),
                        CGRect(x: -100, y: 2050, width: 50, height: 50)] {
@@ -274,6 +275,46 @@ enum AnnotationTests {
         expect(elements == unchanged, "binding resolution is idempotent")
         expect(AnnotationBindings.nearest(to: .zero, in: [arrow], tolerance: 1000) == nil,
                "linear targets cannot create recursive binding graphs")
+    }
+
+    private static func testText(_ expect: (Bool, String) -> Void) {
+        var text = AnnotationElement(tool: .text, rect: CGRect(x: 20, y: 20, width: 0, height: 0), text: "Hello")
+        text.rect = AnnotationRenderer.textBounds(text, scale: 1)
+        let singleHeight = text.rect.height
+        text.text = "  Hello\nWorld  \n"
+        text.rect = AnnotationRenderer.textBounds(text, scale: 1)
+        expect(text.text == "  Hello\nWorld  \n" && text.rect.height > singleHeight,
+               "multiline text geometry preserves whitespace and newlines")
+        for family in AnnotationStyle.FontFamily.allCases {
+            for alignment in AnnotationStyle.Alignment.allCases {
+                var style = text.resolvedStyle
+                style.fontFamily = family
+                style.textAlignment = alignment
+                style.textSize = 24
+                text.style = style
+                text.rect = AnnotationRenderer.textBounds(text, scale: 1)
+                expect(text.rect.width > 0 && text.rect.height > 24,
+                       "font family \(family) alignment \(alignment) has multiline bounds")
+                expect(bitmap({ AnnotationRenderer.draw(text, in: $0, scale: 1, shadowsEnabled: false) }) != nil,
+                       "font family \(family) alignment \(alignment) renders")
+            }
+        }
+        var document = AnnotationDocument()
+        document.edit { $0.elements = [text] }
+        document.begin()
+        document.elements[0].text = "draft\ninput"
+        document.elements[0].style?.textSize = 32
+        document.cancel()
+        expect(document.elements == [text], "cancel restores text and style together")
+        document.begin()
+        document.elements[0].text = "committed\ninput"
+        document.elements[0].style?.textSize = 32
+        document.commit()
+        document.undo()
+        expect(document.elements == [text], "text and inspector style edits undo in one transaction")
+        for language in AppLanguage.allCases {
+            expect(AnnotationTextStrings.labels(language).count == 11, "text inspector localized for \(language)")
+        }
     }
 
     private static func bitmap(_ draw: (CGContext) -> Void) -> Data? {

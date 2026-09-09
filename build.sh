@@ -267,6 +267,7 @@ if (( TEST )); then
         Sources/Vorssaint/Core/AnnotationCommandStrings.swift \
         Sources/Vorssaint/Core/AnnotationStyleStrings.swift \
         Sources/Vorssaint/Core/AnnotationLinearStrings.swift \
+        Sources/Vorssaint/Core/AnnotationTextStrings.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationPanelPlacement.swift \
         Sources/Vorssaint/Services/Annotations/AnnotationRenderer.swift \
         Sources/Vorssaint/Core/FeaturePresets.swift \

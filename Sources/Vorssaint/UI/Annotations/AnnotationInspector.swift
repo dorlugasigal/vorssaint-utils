@@ -87,6 +87,30 @@ struct AnnotationInspector: View {
                     .accessibilityLabel(labels[18])
                 Toggle(AnnotationLinearStrings.bindings(localization.language), isOn: $style.bindEndpoints)
             }
+            if tool == .text {
+                let labels = AnnotationTextStrings.labels(localization.language)
+                HStack {
+                    Picker(labels[0], selection: $style.fontFamily) {
+                        ForEach(AnnotationStyle.FontFamily.allCases, id: \.rawValue) { family in
+                            Text(labels[family.rawValue + 1]).tag(family)
+                        }
+                    }
+                    .frame(width: 160)
+                    Toggle(labels[6], isOn: $style.boldText)
+                }
+                HStack {
+                    Slider(value: Binding(get: { style.textSize ?? 19 }, set: { style.textSize = $0 }),
+                           in: 6...240, onEditingChanged: editingChanged)
+                        .frame(width: 110)
+                        .accessibilityLabel(labels[5])
+                    Picker(labels[7], selection: $style.textAlignment) {
+                        ForEach(AnnotationStyle.Alignment.allCases, id: \.rawValue) { alignment in
+                            Text(labels[alignment.rawValue + 8]).tag(alignment)
+                        }
+                    }
+                    .frame(width: 150)
+                }
+            }
         }
     }
 }

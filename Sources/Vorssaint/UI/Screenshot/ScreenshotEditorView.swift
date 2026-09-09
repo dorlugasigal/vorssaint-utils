@@ -12,7 +12,6 @@ struct ScreenshotEditorView: View {
     @ObservedObject private var l10n = L10n.shared
 
     @State private var editingText = ""
-    @FocusState private var textFieldFocused: Bool
     @State private var dragInFlight = false
     @State private var dragStartView: CGPoint = .zero
     @State private var appeared = false
@@ -369,10 +368,7 @@ struct ScreenshotEditorView: View {
                 }
                 model.endDrag(at: point, isTap: isTap)
                 if model.editingTextID != nil {
-                    editingText = ""
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        textFieldFocused = true
-                    }
+                    editingText = model.annotations.first(where: { $0.id == model.editingTextID })?.text ?? ""
                 }
             }
     }
@@ -549,15 +545,13 @@ struct ScreenshotEditorView: View {
     private func textEditorOverlay(zoom: CGFloat) -> some View {
         if let editingID = model.editingTextID,
            let annotation = model.annotations.first(where: { $0.id == editingID }) {
-            let fontSize = max(11, ScreenshotRenderer.fontSize(for: annotation.stroke,
-                                                               scale: model.scale) * zoom)
             let pad = model.backdropPaddingPixels
-            TextField(strings.textPlaceholder, text: $editingText)
-                .textFieldStyle(.plain)
-                .font(.system(size: fontSize, weight: .semibold))
-                .foregroundStyle(Color(nsColor: ScreenshotRenderer.nsColor(annotation.color)))
-                .focused($textFieldFocused)
-                .frame(minWidth: 130)
+            AnnotationTextEditor(text: $editingText, element: annotation, scale: model.scale * zoom,
+                                 commit: { model.commitText(editingID, text: $0) },
+                                 cancel: model.cancelTextEditing)
+                .id(editingID)
+                .frame(width: max(240, min(600, annotation.rect.width * zoom + 30)),
+                       height: max(100, min(300, annotation.rect.height * zoom + 40)))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(.black.opacity(0.35),
@@ -570,13 +564,6 @@ struct ScreenshotEditorView: View {
                         y: (annotation.rect.minY + pad) * zoom - 3)
                 .onAppear {
                     editingText = annotation.text
-                    DispatchQueue.main.async { textFieldFocused = true }
-                }
-                .onSubmit {
-                    model.commitText(editingID, text: editingText)
-                }
-                .onExitCommand {
-                    model.commitText(editingID, text: editingText)
                 }
         }
     }

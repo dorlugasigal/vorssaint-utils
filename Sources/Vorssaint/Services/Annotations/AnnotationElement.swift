@@ -42,7 +42,15 @@ struct AnnotationElement: Identifiable, Equatable {
         if let style { return style }
         let rgb = color.components
         return AnnotationStyle(color: AnnotationColor(red: rgb.red, green: rgb.green, blue: rgb.blue),
-                               width: stroke.width)
+                               width: stroke.width, textSize: tool == .text ? legacyTextSize : nil)
+    }
+
+    private var legacyTextSize: CGFloat {
+        switch stroke {
+        case .small: return 13
+        case .medium: return 19
+        case .large: return 27
+        }
     }
 }
 
@@ -50,6 +58,8 @@ struct AnnotationStyle: Equatable {
     enum Fill: Int, CaseIterable { case none, solid, hatch, crossHatch }
     enum Pattern: Int, CaseIterable { case solid, dashed, dotted }
     enum Shape: Int, CaseIterable { case standard, diamond }
+    enum FontFamily: Int, CaseIterable { case system, serif, monospace, handwriting }
+    enum Alignment: Int, CaseIterable { case left, center, right }
     var color: AnnotationColor
     var width: CGFloat
     var opacity: CGFloat = 1
@@ -67,6 +77,9 @@ struct AnnotationStyle: Equatable {
     var endHead: AnnotationArrowhead = .legacy
     var headSize: CGFloat = 1
     var bindEndpoints = false
+    var fontFamily: FontFamily = .system
+    var textAlignment: Alignment = .left
+    var boldText = false
 
     func sanitized() -> AnnotationStyle {
         var result = self

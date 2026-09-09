@@ -46,6 +46,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     private(set) var marquee: CGRect?
     private var marqueeSelection: Set<UUID> = []
     private var linearConstruction: AnnotationLinearConstruction?
+    private(set) var editingTextID: UUID?
     var hasLinearConstruction: Bool { linearConstruction != nil }
     var selectedIDs: Set<UUID> { document.selectedIDs }
     private var toolStyles: [AnnotationTool: AnnotationStyle] = [:]
@@ -127,11 +128,16 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         canUndo = document.history.canUndo
         canRedo = document.history.canRedo
         drawingView?.needsDisplay = true
+        if let element = strokes.first(where: { $0.id == editingTextID }) {
+            drawingView?.updateTextEditor(element)
+        }
         DispatchQueue.main.async { [weak self] in self?.fitToolbar() }
     }
 
     fileprivate func cancelGesture() {
         document.cancel()
+        editingTextID = nil
+        drawingView?.cancelTextEditor()
         draftID = nil
         editGesture = nil
         groupGestures.removeAll()
@@ -387,7 +393,11 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     func styleEditingChanged(_ editing: Bool) {
-        if editing { document.begin() } else { document.commit(); refreshDocument() }
+        if editing { document.begin() } else {
+            if editingTextID == nil { document.commit() }
+            refreshDocument()
+            if editingTextID != nil { canvasPanel?.makeKey(); drawingView?.focusTextEditor() }
+        }
     }
 
     func setInspectorStyle(_ value: AnnotationStyle) {
@@ -434,6 +444,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     // MARK: - Stroke entry points (called from AnnotationDrawingView)
 
     fileprivate func beginStroke(at p: NSPoint, bounds: CGRect, extendingSelection: Bool = false) {
+        drawingView?.commitTextEditorIfNeeded()
         if var construction = linearConstruction {
             construction.add(p)
             linearConstruction = construction
@@ -442,6 +453,10 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         }
         cancelGesture()
         dragStart = p
+        if tool == .text {
+            beginTextEditing(at: p, bounds: bounds)
+            return
+        }
         if tool == .select, extendingSelection, let hit = hitTest(p, bounds: bounds) {
             let ids = AnnotationSelection.expandingGroups([hit], in: strokes)
             document.selectedIDs = ids.isSubset(of: selectedIDs)
@@ -463,10 +478,6 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                 }
                 return
             }
-        }
-        if tool == .text {
-            drawingView?.beginTextEditor(at: p)
-            return
         }
         if tool == .select || tool == .eraser {
             let id = hitTest(p, bounds: bounds)
@@ -507,13 +518,30 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
                         smooth: false, textSize: max(14, width * 3), mediumTextWeight: true)
     }
 
-    fileprivate func commitText(_ value: String, at p: NSPoint, bounds: CGRect) {
-        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        var element = AnnotationElement(tool: .text, rect: CGRect(origin: p, size: .zero),
-                                        text: text, style: creationStyle)
+    fileprivate func beginTextEditing(at point: CGPoint, bounds: CGRect) {
+        drawingView?.commitTextEditorIfNeeded()
+        let existing = hitTest(point, bounds: bounds).flatMap { id in strokes.first { $0.id == id && $0.tool == .text } }
+        guard existing?.isLocked != true else { return }
+        document.begin()
+        var element = existing ?? AnnotationElement(tool: .text, rect: CGRect(origin: point, size: .zero),
+                                                    style: creationStyle)
         element.rect = AnnotationRenderer.textBounds(element, scale: 1)
-        document.edit { $0.elements.append(element); $0.selection = [element.id] }
+        if existing == nil { strokes.append(element) }
+        selectedID = element.id
+        editingTextID = element.id
+        drawingView?.beginTextEditor(element)
+        refreshDocument()
+    }
+
+    fileprivate func commitText(_ value: String) {
+        guard let id = editingTextID, let index = strokes.firstIndex(where: { $0.id == id }) else { return }
+        if value.isEmpty { strokes.remove(at: index); selectedID = nil } else {
+            strokes[index].text = value
+            strokes[index].rect = AnnotationRenderer.textBounds(strokes[index], scale: 1)
+        }
+        editingTextID = nil
+        drawingView?.cancelTextEditor()
+        document.commit()
         refreshDocument()
     }
 
@@ -569,6 +597,7 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
     }
 
     fileprivate func finishStroke(at point: CGPoint, bounds: CGRect) {
+        if editingTextID != nil { return }
         if linearConstruction != nil {
             linearConstruction?.add(point)
             updateLinearPreview()
@@ -660,11 +689,10 @@ private final class AnnotationCanvasPanel: NSPanel {
 ///   in non-activating panels.
 /// - `acceptsFirstResponder = true`.
 /// - `isFlipped = true` so coordinate origin matches screen pixels.
-private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
+private final class AnnotationDrawingView: NSView {
     private weak var service: ScreenAnnotationService?
     private var isDragging = false
-    private var textField: NSTextField?
-    private var textOrigin: NSPoint?
+    private var textEditor: AnnotationNativeTextEditor?
 
     init(service: ScreenAnnotationService) {
         self.service = service
@@ -679,54 +707,42 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
 
     required init?(coder: NSCoder) { nil }
 
-    func beginTextEditor(at point: NSPoint) {
-        textField?.removeFromSuperview()
-        let field = NSTextField(frame: NSRect(x: point.x, y: point.y,
-                                               width: 300, height: 34))
-        field.font = NSFont.systemFont(ofSize: 18, weight: .medium)
-        field.textColor = .white
-        field.backgroundColor = .clear
-        field.drawsBackground = false
-        field.isBordered = false
-        field.focusRingType = .none
-        field.target = self
-        field.action = #selector(commitTextEditor)
-        field.delegate = self
-        addSubview(field)
-        textField = field
-        textOrigin = point
-        window?.makeFirstResponder(field)
+    func beginTextEditor(_ element: AnnotationElement) {
+        cancelTextEditor()
+        let editor = AnnotationNativeTextEditor(element: element, scale: 1)
+        editor.frame = CGRect(x: min(element.rect.minX, bounds.maxX - min(400, bounds.width)),
+                              y: min(element.rect.minY, bounds.maxY - min(200, bounds.height)),
+                              width: min(400, bounds.width), height: min(200, bounds.height))
+        editor.committed = { [weak service] in service?.commitText($0) }
+        editor.cancelled = { [weak service] in service?.cancelGesture() }
+        addSubview(editor)
+        textEditor = editor
+        editor.focus()
     }
 
     func cancelTextEditor() {
-        let field = textField
-        textField = nil
-        textOrigin = nil
-        field?.delegate = nil
-        field?.removeFromSuperview()
-        window?.makeFirstResponder(self)
+        let editor = textEditor
+        textEditor = nil
+        editor?.removeFromSuperview()
+        if editor != nil { window?.makeFirstResponder(self) }
     }
 
     func dismissTextEditor() -> Bool {
-        guard textField != nil else { return false }
-        cancelTextEditor()
+        guard textEditor != nil else { return false }
+        service?.cancelGesture()
         return true
+    }
+
+    func updateTextEditor(_ element: AnnotationElement) { textEditor?.applyStyle(element, scale: 1) }
+    func focusTextEditor() { textEditor?.focus() }
+    func commitTextEditorIfNeeded() {
+        if let textEditor { service?.commitText(textEditor.text) }
     }
 
     func cancelInteraction() {
         isDragging = false
         service?.cancelGesture()
         cancelTextEditor()
-    }
-
-    @objc private func commitTextEditor() {
-        guard let field = textField, let origin = textOrigin, let service else { return }
-        service.commitText(field.stringValue, at: origin, bounds: bounds)
-        cancelTextEditor()
-    }
-
-    func controlTextDidEndEditing(_ notification: Notification) {
-        commitTextEditor()
     }
 
     override var acceptsFirstResponder: Bool { true }
@@ -745,6 +761,7 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
             ctx.fill(bounds)
         }
         for stroke in svc.strokes {
+            if stroke.id == svc.editingTextID { continue }
             AnnotationRenderer.draw(stroke, in: ctx, scale: 1, shadowsEnabled: false)
             if svc.selectedIDs.contains(stroke.id) {
                 ctx.saveGState()
@@ -798,6 +815,11 @@ private final class AnnotationDrawingView: NSView, NSTextFieldDelegate {
 
     override func mouseDown(with event: NSEvent) {
         guard let svc = service, svc.isDrawingActive else { return }
+        if event.clickCount == 2, svc.selectedID != nil,
+           svc.inspectorTool == .text {
+            svc.beginTextEditing(at: convert(event.locationInWindow, from: nil), bounds: bounds)
+            return
+        }
         if svc.tool == .text {
             isDragging = true
             let point = convert(event.locationInWindow, from: nil)

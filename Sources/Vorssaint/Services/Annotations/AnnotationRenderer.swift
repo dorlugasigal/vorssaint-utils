@@ -102,13 +102,26 @@ enum AnnotationRenderer {
         case .medium: size = 19
         case .large: size = 27
         }
-        return NSFont.systemFont(ofSize: (style.textSize ?? size) * scale,
-                                 weight: style.mediumTextWeight ? .medium : .semibold)
+        let fontSize = (style.textSize ?? size) * scale
+        let weight: NSFont.Weight = style.boldText ? .bold : style.mediumTextWeight ? .medium : .semibold
+        switch style.fontFamily {
+        case .system: return NSFont.systemFont(ofSize: fontSize, weight: weight)
+        case .serif:
+            return NSFont(name: style.boldText ? "Georgia-Bold" : "Georgia", size: fontSize)
+                ?? NSFont.systemFont(ofSize: fontSize, weight: weight)
+        case .monospace: return NSFont.monospacedSystemFont(ofSize: fontSize, weight: weight)
+        case .handwriting:
+            return NSFont(name: style.boldText ? "ChalkboardSE-Bold" : "ChalkboardSE-Regular", size: fontSize)
+                ?? NSFont.systemFont(ofSize: fontSize, weight: weight)
+        }
     }
 
     static func textBounds(_ annotation: AnnotationElement, scale: CGFloat) -> CGRect {
         let text = annotation.text.isEmpty ? " " : annotation.text
-        let measured = text.size(withAttributes: [.font: font(annotation, scale: scale)])
+        let measured = (text as NSString).boundingRect(
+            with: CGSize(width: 100_000, height: 100_000),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font(annotation, scale: scale)]).size
         return CGRect(origin: annotation.rect.origin,
                       size: CGSize(width: ceil(measured.width) + 4, height: ceil(measured.height)))
     }
@@ -119,6 +132,9 @@ enum AnnotationRenderer {
         var attributes: [NSAttributedString.Key: Any] = [
             .font: font(annotation, scale: scale), .foregroundColor: color(annotation.resolvedStyle)
         ]
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = alignment(annotation.resolvedStyle.textAlignment)
+        attributes[.paragraphStyle] = paragraph
         if shadowsEnabled {
             let shadow = NSShadow()
             shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
@@ -130,9 +146,21 @@ enum AnnotationRenderer {
         let previous = NSGraphicsContext.current
         context.concatenate(AnnotationGeometry.transform(annotation))
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
-        annotation.text.draw(at: CGPoint(x: annotation.rect.minX + 2, y: annotation.rect.minY),
-                             withAttributes: attributes)
+        if annotation.text.contains("\n") || annotation.resolvedStyle.textAlignment != .left {
+            annotation.text.draw(in: annotation.rect.insetBy(dx: 2, dy: 0), withAttributes: attributes)
+        } else {
+            annotation.text.draw(at: CGPoint(x: annotation.rect.minX + 2, y: annotation.rect.minY),
+                                 withAttributes: attributes)
+        }
         NSGraphicsContext.current = previous
         context.restoreGState()
+    }
+
+    static func alignment(_ alignment: AnnotationStyle.Alignment) -> NSTextAlignment {
+        switch alignment {
+        case .left: return .left
+        case .center: return .center
+        case .right: return .right
+        }
     }
 }
