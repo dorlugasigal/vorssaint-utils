@@ -343,17 +343,17 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         p.ignoresMouseEvents = false
         p.contentViewController = host
-        p.isMovableByWindowBackground = true
+        p.isMovableByWindowBackground = false
         self.toolbarPanel = p
-        sessionObservers.append(NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification, object: p, queue: .main) { [weak self] _ in
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            sessionObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: p, queue: .main) { [weak self] _ in
                 guard let self, let toolbar = self.toolbarPanel, let screen = self.sessionScreen else { return }
-                let frame = toolbar.frame
-                let visible = screen.visibleFrame
-                let origin = CGPoint(x: min(max(frame.minX, visible.minX), max(visible.minX, visible.maxX - frame.width)),
-                                     y: min(max(frame.minY, visible.minY), max(visible.minY, visible.maxY - frame.height)))
-                if frame.origin != origin { toolbar.setFrameOrigin(origin) }
+                // SwiftUI can resize the hosting window after the explicit fitting pass.
+                let frame = AnnotationDisplayGeometry.clampedToolbarFrame(toolbar.frame, visibleFrame: screen.visibleFrame)
+                if toolbar.frame != frame { toolbar.setFrame(frame, display: true) }
             })
+        }
     }
 
     // MARK: - Show
@@ -370,11 +370,8 @@ final class ScreenAnnotationService: NSObject, ObservableObject {
               let view = toolbar.contentViewController?.view else { return }
         view.layoutSubtreeIfNeeded()
         let fitted = view.fittingSize
-        let visible = screen.visibleFrame
-        let size = CGSize(width: min(fitted.width, visible.width), height: min(fitted.height, visible.height))
-        let origin = CGPoint(x: min(max(toolbar.frame.minX, visible.minX), visible.maxX - size.width),
-                             y: min(max(toolbar.frame.minY, visible.minY), visible.maxY - size.height))
-        let frame = CGRect(origin: origin, size: size)
+        let frame = AnnotationDisplayGeometry.clampedToolbarFrame(
+            CGRect(origin: toolbar.frame.origin, size: fitted), visibleFrame: screen.visibleFrame)
         if toolbar.frame != frame { toolbar.setFrame(frame, display: true) }
     }
 

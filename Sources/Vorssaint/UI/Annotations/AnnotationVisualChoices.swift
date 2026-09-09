@@ -4,6 +4,27 @@
 import AppKit
 import SwiftUI
 
+struct AnnotationDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button { configuration.isExpanded.toggle() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold)).accessibilityHidden(true)
+                    configuration.label
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if configuration.isExpanded { configuration.content }
+        }
+        .transaction { $0.animation = nil }
+    }
+}
+
 struct AnnotationPreviewTile: View {
     var preview: AnnotationControlPreview
     var isSelected = false
@@ -127,6 +148,7 @@ struct AnnotationArrowheadChoice: View {
                     headGrid(AnnotationArrowhead.allCases.filter { $0 != .legacy && !common.contains($0) })
                         .padding(.top, 8)
                     }
+                    .disclosureGroupStyle(AnnotationDisclosureStyle())
                     .font(.caption)
             }
             .padding(12)

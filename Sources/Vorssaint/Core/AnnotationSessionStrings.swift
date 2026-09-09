@@ -2,6 +2,23 @@
 // Copyright (C) 2026 Vorssaint
 
 enum AnnotationSessionStrings {
+    static func moveToolbar(_ language: AppLanguage) -> String {
+        switch language {
+        case .enUS: return "Move toolbar"
+        case .ptBR: return "Mover barra de ferramentas"
+        case .tr: return "Araç çubuğunu taşı"
+        case .ru: return "Переместить панель инструментов"
+        case .es: return "Mover barra de herramientas"
+        case .de: return "Werkzeugleiste verschieben"
+        case .fr: return "Déplacer la barre d’outils"
+        case .it: return "Sposta barra degli strumenti"
+        case .ja: return "ツールバーを移動"
+        case .ko: return "도구 모음 이동"
+        case .zhHans: return "移动工具栏"
+        case .zhTW, .zhHK: return "移動工具列"
+        }
+    }
+
     static func moreOptions(_ language: AppLanguage) -> String {
         switch language {
         case .enUS: return "More options"

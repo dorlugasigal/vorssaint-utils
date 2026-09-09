@@ -8,6 +8,7 @@ enum AnnotationTests {
         testControlPreviews(expect)
         testColorPalette(expect)
         testPathSampling(expect)
+        testToolbarExpansion(expect)
         testToolShortcuts(expect)
         testDiagramShapes(expect)
         testCurveControlPreservation(expect)
@@ -92,6 +93,22 @@ enum AnnotationTests {
             let normalized = ScreenAnnotationSupport.normalized(
                 point: AnnotationPoint(x: 50 * scale, y: 70 * scale), in: (200 * scale, 200 * scale))
             expect(normalized == AnnotationPoint(x: 0.25, y: 0.35), "coordinate adapter is scale independent")
+        }
+    }
+
+    private static func testToolbarExpansion(_ expect: (Bool, String) -> Void) {
+        for visible in [CGRect(x: 0, y: 24, width: 1280, height: 760),
+                        CGRect(x: -1920, y: -900, width: 1920, height: 1056),
+                        CGRect(x: 500, y: 1400, width: 900, height: 520)] {
+            let collapsed = AnnotationDisplayGeometry.toolbarFrame(size: CGSize(width: 442, height: 207),
+                                                                  visibleFrame: visible)
+            for height: CGFloat in [280, 460, 800] {
+                let lateResize = CGRect(x: collapsed.minX, y: collapsed.maxY - height, width: 442, height: height)
+                let fitted = AnnotationDisplayGeometry.clampedToolbarFrame(lateResize, visibleFrame: visible)
+                expect(visible.contains(fitted), "late toolbar expansion stays on owning screen")
+                expect(AnnotationDisplayGeometry.clampedToolbarFrame(fitted, visibleFrame: visible) == fitted,
+                       "resize clamp is idempotent")
+            }
         }
     }
 

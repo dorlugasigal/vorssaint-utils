@@ -76,6 +76,7 @@ struct AnnotationInspector: View {
                 Label(AnnotationSessionStrings.moreOptions(localization.language), systemImage: "slider.horizontal.3")
                     .font(.caption)
             }
+            .disclosureGroupStyle(AnnotationDisclosureStyle())
         }
         .onChange(of: expanded) { _, _ in layoutChanged() }
         .onChange(of: tool) { _, _ in expanded = false }

@@ -339,29 +339,6 @@ private struct DockPreviewPanelContent: View {
     }
 }
 
-private struct NativeWindowDragHandle: NSViewRepresentable {
-    func makeNSView(context: Context) -> DragHandleView {
-        DragHandleView()
-    }
-
-    func updateNSView(_ nsView: DragHandleView, context: Context) {}
-
-    final class DragHandleView: NSView {
-        override var mouseDownCanMoveWindow: Bool {
-            true
-        }
-
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-            true
-        }
-
-        override func mouseDown(with event: NSEvent) {
-            guard let window else { return }
-            window.performDrag(with: event)
-        }
-    }
-}
-
 private struct DockPreviewCard: View {
     let window: SwitcherItem
     let preview: CGImage?

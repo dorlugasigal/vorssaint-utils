@@ -9,6 +9,14 @@ struct AnnotationDisplayGeometry: Equatable {
     let frame: CGRect
     let scale: CGFloat
 
+    static func clampedToolbarFrame(_ frame: CGRect, visibleFrame: CGRect) -> CGRect {
+        let size = CGSize(width: min(frame.width, visibleFrame.width),
+                          height: min(frame.height, visibleFrame.height))
+        let origin = CGPoint(x: min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - size.width),
+                             y: min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - size.height))
+        return CGRect(origin: origin, size: size)
+    }
+
     func isCompatible(with displays: [AnnotationDisplayGeometry]) -> Bool {
         id != 0 && displays.contains(self)
     }

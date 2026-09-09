@@ -85,6 +85,12 @@ private struct AnnotationToolbarView: View {
                     Button(FeatureStrings.screenshot(localization.language).done) { service.finishLinearConstruction() }
                     Button(FeatureStrings.screenshot(localization.language).cancel, action: service.cancelLinearConstruction)
                 }
+                Image(systemName: "line.3.horizontal")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .overlay(NativeWindowDragHandle())
+                    .help(AnnotationSessionStrings.moveToolbar(localization.language))
+                    .accessibilityLabel(AnnotationSessionStrings.moveToolbar(localization.language))
                 AnnotationSelectionMenu(hasSelection: !service.selectedIDs.isEmpty, perform: service.performSelectionAction)
                 if !service.selectedIDs.isEmpty {
                     Button { transformsPresented.toggle() } label: {
